@@ -17,15 +17,15 @@ FILE_NAME = "tasks.json"
 dark_mode = False
 
 
-LIGHT_BG = "#7394d6"
-LIGHT_FG = "#000000"
-LIGHT_BUTTON = "#EC7FDA"
-LIGHT_ENTRY = "#000000"
+LIGHT_BG = "#F5F5F5"
+LIGHT_FG = "#222222"
+LIGHT_BUTTON = "#D8B4E2"
+LIGHT_ENTRY = "#FFFFFF"
 
-DARK_BG = "#0AECD9"
-DARK_FG = "#000000"
-DARK_BUTTON = "#4A0247"
-DARK_ENTRY = "#FFFFFF"
+DARK_BG = "#222222"
+DARK_FG = "#F20059"
+DARK_BUTTON = "#6C4A8E"
+DARK_ENTRY = "#333333"
 
 
 
@@ -57,14 +57,17 @@ def save_tasks():
 
 def add_task():
     task_text = task_entry.get().strip()
+    description_text = description_entry.get("1.0", tk.END).strip()
 
     if task_text:
         tasks.append({
             "task": task_text,
+            "description": description_text,
             "completed": False
         })
 
         task_entry.delete(0, tk.END)
+        description_entry.delete("1.0", tk.END)
 
         display_tasks()
         save_tasks()
@@ -128,6 +131,7 @@ def display_tasks():
         var = tk.BooleanVar(value=task["completed"])
         task_vars.append(var)
 
+        # Task title
         checkbox = tk.Checkbutton(
             task_frame,
             text=task["task"],
@@ -138,13 +142,30 @@ def display_tasks():
         )
 
         checkbox.grid(
-            row=index,
+            row=index * 2,
             column=0,
             sticky="w",
             padx=15,
-            pady=10
+            pady=(10, 0)
         )
 
+        # Task description
+        description = tk.Label(
+            task_frame,
+            text=task.get("description", ""),
+            font=("Arial", 11),
+            anchor="w"
+        )
+
+        description.grid(
+            row=index * 2 + 1,
+            column=0,
+            sticky="w",
+            padx=40,
+            pady=(0, 5)
+        )
+
+        # Delete button
         delete_button = tk.Button(
             task_frame,
             text="Delete",
@@ -155,14 +176,14 @@ def display_tasks():
         )
 
         delete_button.grid(
-            row=index,
+            row=index * 2,
             column=1,
+            rowspan=2,
             padx=15,
-            pady=10
+            pady=5
         )
 
     update_statistics()
-
 
 # -----------------------------
 # Light / Dark mode
@@ -202,6 +223,11 @@ def toggle_theme():
         fg=fg
     )
 
+    task_label.config(
+    bg=bg,
+    fg=fg
+    )
+
     # Input frame
     input_frame.config(bg=bg)
 
@@ -213,6 +239,17 @@ def toggle_theme():
         bg=entry_bg,
         fg=fg,
         insertbackground=fg
+    )
+
+    description_label.config(
+    bg=bg,
+    fg=fg
+    )
+
+    description_entry.config(
+    bg=entry_bg,
+    fg=fg,
+    insertbackground=fg
     )
 
     # Buttons
@@ -294,6 +331,18 @@ input_frame = tk.Frame(window)
 
 input_frame.pack(pady=10)
 
+task_label = tk.Label(
+    input_frame,
+    text="Task:"
+)
+
+task_label.grid(
+    row=0,
+    column=0,
+    sticky="w",
+    padx=10
+)
+
 task_entry = tk.Entry(
     input_frame,
     width=40,
@@ -301,10 +350,36 @@ task_entry = tk.Entry(
 )
 
 task_entry.grid(
-    row=0,
+    row=1,
     column=0,
     padx=10,
-    pady=10
+    pady=5
+)
+
+description_label = tk.Label(
+    input_frame,
+    text="Description:"
+)
+
+description_label.grid(
+    row=2,
+    column=0,
+    sticky="w",
+    padx=10
+)
+
+description_entry = tk.Text(
+    input_frame,
+    width=40,
+    height=3,
+    font=("Arial", 12)
+)
+
+description_entry.grid(
+    row=3,
+    column=0,
+    padx=10,
+    pady=5
 )
 
 
@@ -322,7 +397,7 @@ add_button = tk.Button(
 )
 
 add_button.grid(
-    row=0,
+    row=3,
     column=1,
     padx=10,
     pady=10
@@ -330,22 +405,68 @@ add_button.grid(
 
 
 # -----------------------------
-# Task Display Area
+# Scrollable Task Display Area
 # -----------------------------
 
-task_frame = tk.Frame(
+task_container = tk.Frame(
     window,
-    width=700,
-    height=400,
+    width=600,
+    height=350,
     bd=2,
     relief="groove"
 )
 
-task_frame.pack_propagate(False)
-
-task_frame.pack(
+task_container.pack(
     padx=20,
     pady=20
+)
+
+task_container.pack_propagate(False)
+
+# Canvas
+canvas = tk.Canvas(
+    task_container,
+    width=580,
+    height=350
+)
+
+canvas.pack(
+    side="left",
+    fill="both",
+    expand=True
+)
+
+# Scrollbar
+scrollbar = tk.Scrollbar(
+    task_container,
+    orient="vertical",
+    command=canvas.yview
+)
+
+scrollbar.pack(
+    side="right",
+    fill="y"
+)
+
+canvas.configure(
+    yscrollcommand=scrollbar.set
+)
+
+# Frame containing the tasks
+task_frame = tk.Frame(canvas)
+
+canvas.create_window(
+    (0, 0),
+    window=task_frame,
+    anchor="nw"
+)
+
+# Update scrolling area whenever tasks change
+task_frame.bind(
+    "<Configure>",
+    lambda event: canvas.configure(
+        scrollregion=canvas.bbox("all")
+    )
 )
 
 task_frame.grid_columnconfigure(0, weight=1)
