@@ -192,11 +192,6 @@ def toggle_theme():
 
         theme_button.config(text="🌙 Dark Mode")
 
-    # Normalize colors (handle optional alpha in hex like #RRGGBBAA)
-    bg = _normalize_color(bg)
-    fg = _normalize_color(fg)
-    button_bg = _normalize_color(button_bg)
-    entry_bg = _normalize_color(entry_bg)
 
     # Main window
     window.config(bg=bg)
