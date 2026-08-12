@@ -1,5 +1,5 @@
 import tkinter as tk
-import json
+import sqlite3
 import os
 
 
@@ -7,7 +7,7 @@ import os
 # File used to store tasks
 # -----------------------------
 
-FILE_NAME = "tasks.json"
+DATABASE_NAME="tasks.db"
 
 
 # -----------------------------
@@ -31,46 +31,83 @@ DARK_ENTRY = "#333333"
 
 
 # -----------------------------
-# Load tasks from JSON file
+# Initialize SQLite database
+# -----------------------------
+
+def initialize_database():
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task TEXT NOT NULL,
+            description TEXT,
+            completed INTEGER DEFAULT 0
+        )
+    """)
+
+    connection.commit()
+    connection.close()
+
+
+# -----------------------------
+# Load tasks from SQLite
 # -----------------------------
 
 def load_tasks():
-    if os.path.exists(FILE_NAME):
-        with open(FILE_NAME, "r") as file:
-            return json.load(file)
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
 
-    return []
+    cursor.execute("""
+        SELECT id, task, description, completed
+        FROM tasks
+        ORDER BY id
+    """)
 
+    rows = cursor.fetchall()
 
-# -----------------------------
-# Save tasks to JSON file
-# -----------------------------
+    connection.close()
 
-def save_tasks():
-    with open(FILE_NAME, "w") as file:
-        json.dump(tasks, file, indent=4)
+    tasks = []
 
+    for row in rows:
+        tasks.append({
+            "id": row[0],
+            "task": row[1],
+            "description": row[2],
+            "completed": bool(row[3])
+        })
 
+    return tasks
 # -----------------------------
 # Add a new task
 # -----------------------------
 
 def add_task():
     task_text = task_entry.get().strip()
-    description_text = description_entry.get("1.0", tk.END).strip()
+    description = description_entry.get("1.0", tk.END).strip()
 
     if task_text:
-        tasks.append({
-            "task": task_text,
-            "description": description_text,
-            "completed": False
-        })
+
+        connection = sqlite3.connect(DATABASE_NAME)
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            INSERT INTO tasks (task, description, completed)
+            VALUES (?, ?, ?)
+        """, (task_text, description, 0))
+
+        connection.commit()
+        connection.close()
 
         task_entry.delete(0, tk.END)
         description_entry.delete("1.0", tk.END)
 
+        tasks.clear()
+        tasks.extend(load_tasks())
+
         display_tasks()
-        save_tasks()
 
 
 # -----------------------------
@@ -78,20 +115,48 @@ def add_task():
 # -----------------------------
 
 def delete_task(index):
-    tasks.pop(index)
+
+    task_id = tasks[index]["id"]
+
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "DELETE FROM tasks WHERE id = ?",
+        (task_id,)
+    )
+
+    connection.commit()
+    connection.close()
+
+    tasks.clear()
+    tasks.extend(load_tasks())
 
     display_tasks()
-    save_tasks()
-
 
 # -----------------------------
 # Change task completion status
 # -----------------------------
 
 def toggle_task(index):
-    tasks[index]["completed"] = task_vars[index].get()
 
-    save_tasks()
+    completed = task_vars[index].get()
+    task_id = tasks[index]["id"]
+
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE tasks
+        SET completed = ?
+        WHERE id = ?
+    """, (int(completed), task_id))
+
+    connection.commit()
+    connection.close()
+
+    tasks[index]["completed"] = completed
+
     update_statistics()
 
 
@@ -511,10 +576,11 @@ theme_button.pack(pady=15)
 # Load existing tasks
 # -----------------------------
 
+initialize_database()
+
 tasks = load_tasks()
 
 display_tasks()
-
 
 # -----------------------------
 # Run application
