@@ -1,3 +1,4 @@
+from operator import index
 import tkinter as tk
 import sqlite3
 import os
@@ -80,6 +81,32 @@ def load_tasks():
         })
 
     return tasks
+
+# -----------------------------
+# Save tasks to SQLite
+# -----------------------------
+
+def save_tasks():
+    conn = sqlite3.connect("tasks.db")
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM tasks")
+
+    for task in tasks:
+        cursor.execute(
+            """
+            INSERT INTO tasks (task, description, completed)
+            VALUES (?, ?, ?)
+            """,
+            (
+                task["task"],
+                task["description"],
+                task["completed"]
+            )
+        )
+
+    conn.commit()
+    conn.close()
 # -----------------------------
 # Add a new task
 # -----------------------------
@@ -133,6 +160,86 @@ def delete_task(index):
     tasks.extend(load_tasks())
 
     display_tasks()
+
+# -----------------------------
+# Edit a task
+# -----------------------------
+
+def edit_task(index):
+
+    task = tasks[index]
+
+    # Create edit window
+    edit_window = tk.Toplevel(window)
+    edit_window.title("Edit Task")
+    edit_window.geometry("500x350")
+    edit_window.resizable(False, False)
+
+    # Task label
+    task_label = tk.Label(
+        edit_window,
+        text="Task:",
+        font=("Arial", 13, "bold")
+    )
+    task_label.pack(pady=(20, 5))
+
+    # Task entry
+    edit_task_entry = tk.Entry(
+        edit_window,
+        width=40,
+        font=("Arial", 13)
+    )
+    edit_task_entry.pack(pady=5)
+
+    # Put existing task name into entry
+    edit_task_entry.insert(0, task["task"])
+
+    # Description label
+    description_label = tk.Label(
+        edit_window,
+        text="Description:",
+        font=("Arial", 13, "bold")
+    )
+    description_label.pack(pady=(15, 5))
+
+    # Description box
+    edit_description = tk.Text(
+        edit_window,
+        width=40,
+        height=6,
+        font=("Arial", 12)
+    )
+    edit_description.pack(pady=5)
+
+    # Put existing description into box
+    edit_description.insert("1.0", task["description"])
+
+    # Save changes
+    def save_changes():
+
+        new_task = edit_task_entry.get().strip()
+        new_description = edit_description.get("1.0", tk.END).strip()
+
+        if new_task:
+
+            tasks[index]["task"] = new_task
+            tasks[index]["description"] = new_description
+
+            save_tasks()
+            display_tasks()
+
+            edit_window.destroy()
+
+    save_button = tk.Button(
+        edit_window,
+        text="Save Changes",
+        command=save_changes,
+        font=("Arial", 12),
+        padx=15,
+        pady=7
+    )
+
+    save_button.pack(pady=15)
 
 # -----------------------------
 # Change task completion status
@@ -230,22 +337,40 @@ def display_tasks():
             pady=(0, 5)
         )
 
+        # Edit button
+        edit_button = tk.Button(
+            task_frame,
+            text="Edit",
+            command=lambda i=index: edit_task(i),
+            font=("Arial", 11),
+            width=8,
+            padx=10,
+            pady=5
+        )
+
+        edit_button.grid(
+            row=index,
+            column=1,
+            padx=5,
+            pady=10
+        )
+
         # Delete button
         delete_button = tk.Button(
             task_frame,
             text="Delete",
             command=lambda i=index: delete_task(i),
             font=("Arial", 11),
-            padx=12,
+            width=8,
+            padx=10,
             pady=5
         )
 
         delete_button.grid(
-            row=index * 2,
-            column=1,
-            rowspan=2,
-            padx=15,
-            pady=5
+            row=index,
+            column=2,
+            padx=5,
+            pady=10
         )
 
     update_statistics()
