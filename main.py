@@ -2,6 +2,7 @@ from operator import index
 import tkinter as tk
 import sqlite3
 import os
+from datetime import datetime
 
 
 # -----------------------------
@@ -44,9 +45,19 @@ def initialize_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task TEXT NOT NULL,
             description TEXT,
-            completed INTEGER DEFAULT 0
+            completed INTEGER DEFAULT 0,
+            due_date TEXT
         )
     """)
+
+    connection.commit()
+
+    # Add due_date to an existing database if it doesn't already exist
+    cursor.execute("PRAGMA table_info(tasks)")
+    columns = [column[1] for column in cursor.fetchall()]
+
+    if "due_date" not in columns:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
 
     connection.commit()
     connection.close()
@@ -61,7 +72,7 @@ def load_tasks():
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT id, task, description, completed
+        SELECT id, task, description, completed, due_date
         FROM tasks
         ORDER BY id
     """)
@@ -77,7 +88,8 @@ def load_tasks():
             "id": row[0],
             "task": row[1],
             "description": row[2],
-            "completed": bool(row[3])
+            "completed": bool(row[3]),
+            "due_date": row[4]
         })
 
     return tasks
@@ -87,21 +99,25 @@ def load_tasks():
 # -----------------------------
 
 def save_tasks():
+
     conn = sqlite3.connect("tasks.db")
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM tasks")
 
     for task in tasks:
+
         cursor.execute(
             """
-            INSERT INTO tasks (task, description, completed)
-            VALUES (?, ?, ?)
+            INSERT INTO tasks
+            (task, description, completed, due_date)
+            VALUES (?, ?, ?, ?)
             """,
             (
                 task["task"],
                 task["description"],
-                task["completed"]
+                task["completed"],
+                task.get("due_date", "")
             )
         )
 
@@ -112,29 +128,53 @@ def save_tasks():
 # -----------------------------
 
 def add_task():
+
     task_text = task_entry.get().strip()
+    due_date = due_date_entry.get().strip()
     description = description_entry.get("1.0", tk.END).strip()
 
-    if task_text:
+    # Task name is required
+    if not task_text:
+        return
 
-        connection = sqlite3.connect(DATABASE_NAME)
-        cursor = connection.cursor()
+    # Validate date
+    if due_date:
 
-        cursor.execute("""
-            INSERT INTO tasks (task, description, completed)
-            VALUES (?, ?, ?)
-        """, (task_text, description, 0))
+        try:
+            datetime.strptime(due_date, "%d/%m/%Y")
 
-        connection.commit()
-        connection.close()
+        except ValueError:
+            print("Invalid date. Please use DD/MM/YYYY.")
+            return
 
-        task_entry.delete(0, tk.END)
-        description_entry.delete("1.0", tk.END)
+    # Save task to SQLite
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
 
-        tasks.clear()
-        tasks.extend(load_tasks())
+    cursor.execute("""
+        INSERT INTO tasks
+        (task, description, completed, due_date)
+        VALUES (?, ?, ?, ?)
+    """, (
+        task_text,
+        description,
+        0,
+        due_date
+    ))
 
-        display_tasks()
+    connection.commit()
+    connection.close()
+
+    # Clear input fields
+    task_entry.delete(0, tk.END)
+    due_date_entry.delete(0, tk.END)
+    description_entry.delete("1.0", tk.END)
+
+    # Reload tasks
+    tasks.clear()
+    tasks.extend(load_tasks())
+
+    display_tasks()
 
 
 # -----------------------------
@@ -166,6 +206,183 @@ def delete_task(index):
 # -----------------------------
 
 def edit_task(index):
+
+    task = tasks[index]
+
+    edit_window = tk.Toplevel(window)
+    edit_window.title("Edit Task")
+    edit_window.geometry("500x450")
+    edit_window.resizable(False, False)
+
+    # -----------------------------
+    # Task
+    # -----------------------------
+
+    task_label = tk.Label(
+        edit_window,
+        text="Task:",
+        font=("Arial", 13, "bold")
+    )
+
+    task_label.pack(
+        anchor="w",
+        padx=30,
+        pady=(25, 5)
+    )
+
+    edit_task_entry = tk.Entry(
+        edit_window,
+        width=45,
+        font=("Arial", 13)
+    )
+
+    edit_task_entry.pack(
+        padx=30,
+        pady=5
+    )
+
+    edit_task_entry.insert(
+        0,
+        task["task"]
+    )
+
+    # -----------------------------
+    # Due Date
+    # -----------------------------
+
+    due_date_label = tk.Label(
+        edit_window,
+        text="Due Date (DD/MM/YYYY):",
+        font=("Arial", 13, "bold")
+    )
+
+    due_date_label.pack(
+        anchor="w",
+        padx=30,
+        pady=(15, 5)
+    )
+
+    edit_due_date_entry = tk.Entry(
+        edit_window,
+        width=25,
+        font=("Arial", 13)
+    )
+
+    edit_due_date_entry.pack(
+        anchor="w",
+        padx=30,
+        pady=5
+    )
+
+    edit_due_date_entry.insert(
+        0,
+        task.get("due_date", "")
+    )
+
+    # -----------------------------
+    # Description
+    # -----------------------------
+
+    description_label = tk.Label(
+        edit_window,
+        text="Description:",
+        font=("Arial", 13, "bold")
+    )
+
+    description_label.pack(
+        anchor="w",
+        padx=30,
+        pady=(15, 5)
+    )
+
+    edit_description_entry = tk.Text(
+        edit_window,
+        width=45,
+        height=5,
+        font=("Arial", 12)
+    )
+
+    edit_description_entry.pack(
+        padx=30,
+        pady=5
+    )
+
+    edit_description_entry.insert(
+        "1.0",
+        task.get("description", "")
+    )
+
+    # -----------------------------
+    # Save Changes
+    # -----------------------------
+
+    def save_changes():
+
+        new_task = edit_task_entry.get().strip()
+        new_due_date = edit_due_date_entry.get().strip()
+        new_description = edit_description_entry.get(
+            "1.0",
+            tk.END
+        ).strip()
+
+        if not new_task:
+            return
+
+        # Validate date
+        if new_due_date:
+
+            try:
+                datetime.strptime(
+                    new_due_date,
+                    "%d/%m/%Y"
+                )
+
+            except ValueError:
+                print("Invalid date. Use DD/MM/YYYY.")
+                return
+
+        # Update SQLite database
+        connection = sqlite3.connect(DATABASE_NAME)
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            UPDATE tasks
+            SET task = ?,
+                description = ?,
+                due_date = ?
+            WHERE id = ?
+        """, (
+            new_task,
+            new_description,
+            new_due_date,
+            task["id"]
+        ))
+
+        connection.commit()
+        connection.close()
+
+        # Update local task
+        task["task"] = new_task
+        task["description"] = new_description
+        task["due_date"] = new_due_date
+
+        # Refresh task list
+        display_tasks()
+
+        edit_window.destroy()
+
+    save_button = tk.Button(
+        edit_window,
+        text="Save Changes",
+        command=save_changes,
+        font=("Arial", 13, "bold"),
+        padx=20,
+        pady=8
+    )
+
+    save_button.pack(
+        pady=20
+    )
 
     task = tasks[index]
 
@@ -303,7 +520,10 @@ def display_tasks():
         var = tk.BooleanVar(value=task["completed"])
         task_vars.append(var)
 
+        # -----------------------------
         # Task title
+        # -----------------------------
+
         checkbox = tk.Checkbutton(
             task_frame,
             text=task["task"],
@@ -314,30 +534,17 @@ def display_tasks():
         )
 
         checkbox.grid(
-            row=index * 2,
+            row=index * 3,
             column=0,
             sticky="w",
             padx=15,
             pady=(10, 0)
         )
 
-        # Task description
-        description = tk.Label(
-            task_frame,
-            text=task.get("description", ""),
-            font=("Arial", 11),
-            anchor="w"
-        )
-
-        description.grid(
-            row=index * 2 + 1,
-            column=0,
-            sticky="w",
-            padx=40,
-            pady=(0, 5)
-        )
-
+        # -----------------------------
         # Edit button
+        # -----------------------------
+
         edit_button = tk.Button(
             task_frame,
             text="Edit",
@@ -349,13 +556,16 @@ def display_tasks():
         )
 
         edit_button.grid(
-            row=index,
+            row=index * 3,
             column=1,
             padx=5,
             pady=10
         )
 
+        # -----------------------------
         # Delete button
+        # -----------------------------
+
         delete_button = tk.Button(
             task_frame,
             text="Delete",
@@ -367,14 +577,53 @@ def display_tasks():
         )
 
         delete_button.grid(
-            row=index,
+            row=index * 3,
             column=2,
             padx=5,
             pady=10
         )
 
-    update_statistics()
+        # -----------------------------
+        # Description
+        # -----------------------------
 
+        description = tk.Label(
+            task_frame,
+            text=task.get("description", ""),
+            font=("Arial", 11),
+            anchor="w"
+        )
+
+        description.grid(
+            row=index * 3 + 1,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            padx=40,
+            pady=(0, 2)
+        )
+
+        # -----------------------------
+        # Due date
+        # -----------------------------
+
+        due_date = tk.Label(
+            task_frame,
+            text=f"Due: {task.get('due_date', '')}",
+            font=("Arial", 10),
+            anchor="w"
+        )
+
+        due_date.grid(
+            row=index * 3 + 2,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            padx=40,
+            pady=(0, 8)
+        )
+
+    update_statistics()
 # -----------------------------
 # Light / Dark mode
 # -----------------------------
@@ -521,18 +770,22 @@ input_frame = tk.Frame(window)
 
 input_frame.pack(pady=10)
 
+# Task label
 task_label = tk.Label(
     input_frame,
-    text="Task:"
+    text="Task:",
+    font=("Arial", 12)
 )
 
 task_label.grid(
     row=0,
     column=0,
     sticky="w",
-    padx=10
+    padx=10,
+    pady=(5, 0)
 )
 
+# Task entry
 task_entry = tk.Entry(
     input_frame,
     width=40,
@@ -546,16 +799,54 @@ task_entry.grid(
     pady=5
 )
 
-description_label = tk.Label(
+# -----------------------------
+# Due Date
+# -----------------------------
+
+due_date_label = tk.Label(
     input_frame,
-    text="Description:"
+    text="Due Date (DD/MM/YYYY):",
+    font=("Arial", 12)
 )
 
-description_label.grid(
+due_date_label.grid(
     row=2,
     column=0,
     sticky="w",
-    padx=10
+    padx=10,
+    pady=(5, 0)
+)
+
+due_date_entry = tk.Entry(
+    input_frame,
+    width=20,
+    font=("Arial", 13)
+)
+
+due_date_entry.grid(
+    row=3,
+    column=0,
+    sticky="w",
+    padx=10,
+    pady=5
+)
+
+# -----------------------------
+# Description
+# -----------------------------
+
+description_label = tk.Label(
+    input_frame,
+    text="Description:",
+    font=("Arial", 12)
+)
+
+description_label.grid(
+    row=4,
+    column=0,
+    sticky="w",
+    padx=10,
+    pady=(5, 0)
 )
 
 description_entry = tk.Text(
@@ -566,12 +857,11 @@ description_entry = tk.Text(
 )
 
 description_entry.grid(
-    row=3,
+    row=5,
     column=0,
     padx=10,
     pady=5
 )
-
 
 # -----------------------------
 # Add Button
@@ -587,9 +877,9 @@ add_button = tk.Button(
 )
 
 add_button.grid(
-    row=3,
+    row=5,
     column=1,
-    padx=10,
+    padx=20,
     pady=10
 )
 
