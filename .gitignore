@@ -3,3 +3,4 @@ __pycache__/
 tasks.json
 notes.txt
 .DS_Store
+tasks.db
