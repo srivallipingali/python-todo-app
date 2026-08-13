@@ -1,4 +1,3 @@
-from operator import index
 import tkinter as tk
 import sqlite3
 import os
@@ -46,18 +45,24 @@ def initialize_database():
             task TEXT NOT NULL,
             description TEXT,
             completed INTEGER DEFAULT 0,
-            due_date TEXT
+            due_date TEXT,
+            priority TEXT DEFAULT 'Medium'
         )
     """)
 
     connection.commit()
 
-    # Add due_date to an existing database if it doesn't already exist
+    # Add due_date and priority columns to an existing database if they don't exist
     cursor.execute("PRAGMA table_info(tasks)")
     columns = [column[1] for column in cursor.fetchall()]
 
     if "due_date" not in columns:
         cursor.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
+
+    if "priority" not in columns:
+        cursor.execute(
+            "ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'"
+        )
 
     connection.commit()
     connection.close()
@@ -72,7 +77,7 @@ def load_tasks():
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT id, task, description, completed, due_date
+        SELECT id, task, description, completed, due_date, priority
         FROM tasks
         ORDER BY id
     """)
@@ -89,7 +94,8 @@ def load_tasks():
             "task": row[1],
             "description": row[2],
             "completed": bool(row[3]),
-            "due_date": row[4]
+            "due_date": row[4],
+            "priority": row[5] if row[5] else "Medium"
         })
 
     return tasks
@@ -110,14 +116,15 @@ def save_tasks():
         cursor.execute(
             """
             INSERT INTO tasks
-            (task, description, completed, due_date)
-            VALUES (?, ?, ?, ?)
+            (task, description, completed, due_date, priority)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 task["task"],
                 task["description"],
                 task["completed"],
-                task.get("due_date", "")
+                task.get("due_date", ""),
+                task.get("priority", "Medium")
             )
         )
 
@@ -132,8 +139,8 @@ def add_task():
     task_text = task_entry.get().strip()
     due_date = due_date_entry.get().strip()
     description = description_entry.get("1.0", tk.END).strip()
+    priority = priority_var.get()
 
-    # Task name is required
     if not task_text:
         return
 
@@ -141,41 +148,45 @@ def add_task():
     if due_date:
 
         try:
-            datetime.strptime(due_date, "%d/%m/%Y")
+            datetime.strptime(
+                due_date,
+                "%d/%m/%Y"
+            )
 
         except ValueError:
-            print("Invalid date. Please use DD/MM/YYYY.")
+            print("Invalid date. Use DD/MM/YYYY.")
             return
 
-    # Save task to SQLite
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
     cursor.execute("""
         INSERT INTO tasks
-        (task, description, completed, due_date)
-        VALUES (?, ?, ?, ?)
+        (task, description, completed, due_date, priority)
+        VALUES (?, ?, ?, ?, ?)
     """, (
         task_text,
         description,
         0,
-        due_date
+        due_date,
+        priority
     ))
 
     connection.commit()
     connection.close()
 
-    # Clear input fields
+    # Clear fields
     task_entry.delete(0, tk.END)
     due_date_entry.delete(0, tk.END)
     description_entry.delete("1.0", tk.END)
+
+    priority_var.set("Medium")
 
     # Reload tasks
     tasks.clear()
     tasks.extend(load_tasks())
 
     display_tasks()
-
 
 # -----------------------------
 # Delete a task
@@ -250,6 +261,7 @@ def edit_task(index):
     # Due Date
     # -----------------------------
 
+
     due_date_label = tk.Label(
         edit_window,
         text="Due Date (DD/MM/YYYY):",
@@ -278,11 +290,46 @@ def edit_task(index):
         0,
         task.get("due_date", "")
     )
-
+        # -----------------------------
+    # Priority
     # -----------------------------
-    # Description
-    # -----------------------------
 
+    priority_label = tk.Label(
+        edit_window,
+        text="Priority:",
+        font=("Arial", 13, "bold")
+    )
+
+    priority_label.pack(
+        anchor="w",
+        padx=30,
+        pady=(15, 5)
+    )
+
+    edit_priority_var = tk.StringVar(
+        value=task.get("priority", "Medium")
+    )
+
+    edit_priority_menu = tk.OptionMenu(
+        edit_window,
+        edit_priority_var,
+        "High",
+        "Medium",
+        "Low"
+    )
+
+    edit_priority_menu.config(
+        font=("Arial", 12),
+        width=15
+    )
+
+    edit_priority_menu.pack(
+        anchor="w",
+        padx=30,
+        pady=5
+    )
+
+    # Description label
     description_label = tk.Label(
         edit_window,
         text="Description:",
@@ -295,35 +342,29 @@ def edit_task(index):
         pady=(15, 5)
     )
 
-    edit_description_entry = tk.Text(
+    # Description box
+    edit_description = tk.Text(
         edit_window,
         width=45,
         height=5,
         font=("Arial", 12)
     )
 
-    edit_description_entry.pack(
+    edit_description.pack(
         padx=30,
         pady=5
     )
 
-    edit_description_entry.insert(
-        "1.0",
-        task.get("description", "")
-    )
+    # Put existing description into box
+    edit_description.insert("1.0", task.get("description", ""))
 
-    # -----------------------------
-    # Save Changes
-    # -----------------------------
-
+    # Save changes
     def save_changes():
 
         new_task = edit_task_entry.get().strip()
         new_due_date = edit_due_date_entry.get().strip()
-        new_description = edit_description_entry.get(
-            "1.0",
-            tk.END
-        ).strip()
+        new_description = edit_description.get("1.0", tk.END).strip()
+        new_priority = edit_priority_var.get()
 
         if not new_task:
             return
@@ -349,12 +390,14 @@ def edit_task(index):
             UPDATE tasks
             SET task = ?,
                 description = ?,
-                due_date = ?
+                due_date = ?,
+                priority = ?
             WHERE id = ?
         """, (
             new_task,
             new_description,
             new_due_date,
+            new_priority,
             task["id"]
         ))
 
@@ -365,6 +408,7 @@ def edit_task(index):
         task["task"] = new_task
         task["description"] = new_description
         task["due_date"] = new_due_date
+        task["priority"] = new_priority
 
         # Refresh task list
         display_tasks()
@@ -383,80 +427,6 @@ def edit_task(index):
     save_button.pack(
         pady=20
     )
-
-    task = tasks[index]
-
-    # Create edit window
-    edit_window = tk.Toplevel(window)
-    edit_window.title("Edit Task")
-    edit_window.geometry("500x350")
-    edit_window.resizable(False, False)
-
-    # Task label
-    task_label = tk.Label(
-        edit_window,
-        text="Task:",
-        font=("Arial", 13, "bold")
-    )
-    task_label.pack(pady=(20, 5))
-
-    # Task entry
-    edit_task_entry = tk.Entry(
-        edit_window,
-        width=40,
-        font=("Arial", 13)
-    )
-    edit_task_entry.pack(pady=5)
-
-    # Put existing task name into entry
-    edit_task_entry.insert(0, task["task"])
-
-    # Description label
-    description_label = tk.Label(
-        edit_window,
-        text="Description:",
-        font=("Arial", 13, "bold")
-    )
-    description_label.pack(pady=(15, 5))
-
-    # Description box
-    edit_description = tk.Text(
-        edit_window,
-        width=40,
-        height=6,
-        font=("Arial", 12)
-    )
-    edit_description.pack(pady=5)
-
-    # Put existing description into box
-    edit_description.insert("1.0", task["description"])
-
-    # Save changes
-    def save_changes():
-
-        new_task = edit_task_entry.get().strip()
-        new_description = edit_description.get("1.0", tk.END).strip()
-
-        if new_task:
-
-            tasks[index]["task"] = new_task
-            tasks[index]["description"] = new_description
-
-            save_tasks()
-            display_tasks()
-
-            edit_window.destroy()
-
-    save_button = tk.Button(
-        edit_window,
-        text="Save Changes",
-        command=save_changes,
-        font=("Arial", 12),
-        padx=15,
-        pady=7
-    )
-
-    save_button.pack(pady=15)
 
 # -----------------------------
 # Change task completion status
@@ -534,7 +504,7 @@ def display_tasks():
         )
 
         checkbox.grid(
-            row=index * 3,
+            row=index * 4,
             column=0,
             sticky="w",
             padx=15,
@@ -556,10 +526,10 @@ def display_tasks():
         )
 
         edit_button.grid(
-            row=index * 3,
+            row=index * 4,
             column=1,
-            padx=5,
-            pady=10
+            padx=10,
+            pady=5
         )
 
         # -----------------------------
@@ -577,10 +547,10 @@ def display_tasks():
         )
 
         delete_button.grid(
-            row=index * 3,
+            row=index * 4,
             column=2,
-            padx=5,
-            pady=10
+            padx=10,
+            pady=5
         )
 
         # -----------------------------
@@ -595,7 +565,7 @@ def display_tasks():
         )
 
         description.grid(
-            row=index * 3 + 1,
+            row=index * 4 + 1,
             column=0,
             columnspan=3,
             sticky="w",
@@ -615,13 +585,103 @@ def display_tasks():
         )
 
         due_date.grid(
-            row=index * 3 + 2,
+            row=index * 4 + 2,
             column=0,
             columnspan=3,
             sticky="w",
             padx=40,
             pady=(0, 8)
         )
+
+        # -----------------------------
+        # Priority
+        # -----------------------------
+
+        priority = task.get("priority", "Medium")
+
+        if priority == "High":
+            priority_text = "🔴 High"
+        elif priority == "Low":
+            priority_text = "🟢 Low"
+        else:
+            priority_text = "🟡 Medium"
+
+        priority_display = tk.Label(
+            task_frame,
+            text=f"Priority: {priority_text}",
+            font=("Arial", 10),
+            anchor="w"
+        )
+
+        priority_display.grid(
+            row=index * 4 + 3,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            padx=40,
+            pady=(0, 8)
+        )
+
+        for index, task in enumerate(tasks):
+
+            var = tk.BooleanVar(value=task["completed"])
+            task_vars.append(var)
+
+            # Task checkbox
+            checkbox = tk.Checkbutton(
+                task_frame,
+                text=task["task"],
+                variable=var,
+                command=lambda i=index: toggle_task(i),
+                font=("Arial", 14),
+                anchor="w"
+            )
+
+            checkbox.grid(
+                row=index,
+                column=0,
+                sticky="w",
+                padx=15,
+                pady=5
+            )
+
+
+            # Edit button
+            edit_button = tk.Button(
+                task_frame,
+                text="Edit",
+                command=lambda i=index: edit_task(i),
+                font=("Arial", 11),
+                width=8,
+                padx=5,
+                pady=4
+            )
+
+            edit_button.grid(
+                row=index,
+                column=1,
+                padx=5,
+                pady=5
+            )
+
+
+            # Delete button
+            delete_button = tk.Button(
+                task_frame,
+                text="Delete",
+                command=lambda i=index: delete_task(i),
+                font=("Arial", 11),
+                width=8,
+                padx=5,
+                pady=4
+            )
+
+            delete_button.grid(
+                row=index,
+                column=2,
+                padx=5,
+                pady=5
+            )
 
     update_statistics()
 # -----------------------------
@@ -667,12 +727,15 @@ def toggle_theme():
     fg=fg
     )
 
-    # Input frame
+            # Top bar
+    top_bar.config(bg=bg)
+
+        # Input frame
     input_frame.config(bg=bg)
 
-    # Task frame
+        # Task frame
     task_frame.config(bg=bg)
-
+    
     # Entry box
     task_entry.config(
         bg=entry_bg,
@@ -832,6 +895,51 @@ due_date_entry.grid(
 )
 
 # -----------------------------
+# Priority
+# -----------------------------
+
+priority_frame = tk.Frame(input_frame)
+
+priority_frame.grid(
+    row=4,
+    column=0,
+    columnspan=2,
+    sticky="w",
+    padx=10,
+    pady=5
+)
+
+priority_label = tk.Label(
+    priority_frame,
+    text="Priority:",
+    font=("Arial", 13, "bold")
+)
+
+priority_label.pack(
+    side="left",
+    padx=(0, 15)
+)
+
+priority_var = tk.StringVar(value="Medium")
+
+priority_menu = tk.OptionMenu(
+    priority_frame,
+    priority_var,
+    "High",
+    "Medium",
+    "Low"
+)
+
+priority_menu.config(
+    font=("Arial", 12),
+    width=12
+)
+
+priority_menu.pack(
+    side="left"
+)
+
+# -----------------------------
 # Description
 # -----------------------------
 
@@ -842,7 +950,7 @@ description_label = tk.Label(
 )
 
 description_label.grid(
-    row=4,
+    row=6,
     column=0,
     sticky="w",
     padx=10,
@@ -857,7 +965,7 @@ description_entry = tk.Text(
 )
 
 description_entry.grid(
-    row=5,
+    row=7,
     column=0,
     padx=10,
     pady=5
@@ -877,7 +985,7 @@ add_button = tk.Button(
 )
 
 add_button.grid(
-    row=5,
+    row=7,
     column=1,
     padx=20,
     pady=10
@@ -934,6 +1042,9 @@ canvas.configure(
 
 # Frame containing the tasks
 task_frame = tk.Frame(canvas)
+task_frame.grid_columnconfigure(0, weight=1)
+task_frame.grid_columnconfigure(1, weight=0)
+task_frame.grid_columnconfigure(2, weight=0)
 
 canvas.create_window(
     (0, 0),
@@ -962,21 +1073,26 @@ task_vars = []
 # Statistics
 # -----------------------------
 
+# -----------------------------
+# Top Bar
+# -----------------------------
+
+top_bar = tk.Frame(window)
+top_bar.pack(fill="x", padx=30, pady=10)
+
+# Statistics - top left
 statistics_label = tk.Label(
-    window,
+    top_bar,
     text="Total: 0    Completed: 0    Remaining: 0",
     font=("Arial", 13, "bold")
 )
 
-statistics_label.pack(pady=15)
+statistics_label.pack(side="left")
 
 
-# -----------------------------
-# Light / Dark Mode Button
-# -----------------------------
-
+# Light / Dark Mode - top right
 theme_button = tk.Button(
-    window,
+    top_bar,
     text="🌙 Dark Mode",
     command=toggle_theme,
     font=("Arial", 13),
@@ -984,7 +1100,8 @@ theme_button = tk.Button(
     pady=7
 )
 
-theme_button.pack(pady=15)
+theme_button.pack(side="right")
+
 
 
 # -----------------------------
