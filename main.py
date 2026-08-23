@@ -220,17 +220,17 @@ def edit_task(index):
 
     task = tasks[index]
 
-    edit_window = tk.Toplevel(window)
-    edit_window.title("Edit Task")
-    edit_window.geometry("500x450")
-    edit_window.resizable(False, False)
+    edit_main_frame = tk.Toplevel(main_frame)
+    edit_main_frame.title("Edit Task")
+    edit_main_frame.geometry("500x450")
+    edit_main_frame.resizable(False, False)
 
     # -----------------------------
     # Task
     # -----------------------------
 
     task_label = tk.Label(
-        edit_window,
+        edit_main_frame,
         text="Task:",
         font=("Arial", 13, "bold")
     )
@@ -242,7 +242,7 @@ def edit_task(index):
     )
 
     edit_task_entry = tk.Entry(
-        edit_window,
+        edit_main_frame,
         width=45,
         font=("Arial", 13)
     )
@@ -263,7 +263,7 @@ def edit_task(index):
 
 
     due_date_label = tk.Label(
-        edit_window,
+        edit_main_frame,
         text="Due Date (DD/MM/YYYY):",
         font=("Arial", 13, "bold")
     )
@@ -275,7 +275,7 @@ def edit_task(index):
     )
 
     edit_due_date_entry = tk.Entry(
-        edit_window,
+        edit_main_frame,
         width=25,
         font=("Arial", 13)
     )
@@ -295,7 +295,7 @@ def edit_task(index):
     # -----------------------------
 
     priority_label = tk.Label(
-        edit_window,
+        edit_main_frame,
         text="Priority:",
         font=("Arial", 13, "bold")
     )
@@ -311,7 +311,7 @@ def edit_task(index):
     )
 
     edit_priority_menu = tk.OptionMenu(
-        edit_window,
+        edit_main_frame,
         edit_priority_var,
         "High",
         "Medium",
@@ -331,7 +331,7 @@ def edit_task(index):
 
     # Description label
     description_label = tk.Label(
-        edit_window,
+        edit_main_frame,
         text="Description:",
         font=("Arial", 13, "bold")
     )
@@ -344,7 +344,7 @@ def edit_task(index):
 
     # Description box
     edit_description = tk.Text(
-        edit_window,
+        edit_main_frame,
         width=45,
         height=5,
         font=("Arial", 12)
@@ -413,10 +413,10 @@ def edit_task(index):
         # Refresh task list
         display_tasks()
 
-        edit_window.destroy()
+        edit_main_frame.destroy()
 
     save_button = tk.Button(
-        edit_window,
+        edit_main_frame,
         text="Save Changes",
         command=save_changes,
         font=("Arial", 13, "bold"),
@@ -471,6 +471,90 @@ def update_statistics():
     statistics_label.config(
         text=f"Total: {total}    Completed: {completed}    Remaining: {remaining}"
     )
+
+def search_tasks():
+    search_text = search_entry.get().lower().strip()
+
+    # Remove current task widgets
+    for widget in task_frame.winfo_children():
+        widget.destroy()
+
+    task_vars.clear()
+
+    # Filter tasks
+    if search_text:
+        filtered_tasks = [
+            task for task in tasks
+            if search_text in task["task"].lower()
+            or search_text in task.get("description", "").lower()
+        ]
+    else:
+        filtered_tasks = tasks
+
+    # Display filtered tasks
+    for index, task in enumerate(filtered_tasks):
+
+        var = tk.BooleanVar(value=task["completed"])
+        task_vars.append(var)
+
+        checkbox = tk.Checkbutton(
+            task_frame,
+            text=task["task"],
+            variable=var,
+            command=lambda t=task: toggle_searched_task(t),
+            font=("Arial", 14),
+            anchor="w"
+        )
+
+        checkbox.grid(
+            row=index,
+            column=0,
+            sticky="w",
+            padx=15,
+            pady=10
+        )
+
+        edit_button = tk.Button(
+            task_frame,
+            text="Edit",
+            command=lambda t=task: edit_task(tasks.index(t)),
+            font=("Arial", 11),
+            width=8
+        )
+
+        edit_button.grid(
+            row=index,
+            column=1,
+            padx=5,
+            pady=10
+        )
+
+        delete_button = tk.Button(
+            task_frame,
+            text="Delete",
+            command=lambda t=task: delete_task(tasks.index(t)),
+            font=("Arial", 11),
+            width=8
+        )
+
+        delete_button.grid(
+            row=index,
+            column=2,
+            padx=5,
+            pady=10
+        )
+
+    update_statistics()
+
+
+def toggle_searched_task(task):
+    # Find the actual task in the main list
+    index = tasks.index(task)
+
+    tasks[index]["completed"] = task_vars[index].get()
+
+    save_tasks()
+    update_statistics()    
 
 
 # -----------------------------
@@ -713,8 +797,8 @@ def toggle_theme():
         theme_button.config(text="🌙 Dark Mode")
 
 
-    # Main window
-    window.config(bg=bg)
+    # Main main_frame
+    main_frame.config(bg=bg)
 
     # Title
     title.config(
@@ -735,7 +819,7 @@ def toggle_theme():
 
         # Task frame
     task_frame.config(bg=bg)
-    
+
     # Entry box
     task_entry.config(
         bg=entry_bg,
@@ -795,21 +879,93 @@ def toggle_theme():
 
 
 # -----------------------------
-# Main Window
+# Main main_frame
+# -----------------------------
+main_frame = tk.Tk()
+
+main_frame.title("My To-Do App")
+main_frame.geometry("1450x800")
+main_frame.resizable(True, True)
+
+
+# -----------------------------
+# Whole Page Scrollbar
 # -----------------------------
 
-window = tk.Tk()
+main_canvas = tk.Canvas(
+    main_frame,
+    highlightthickness=0
+)
 
-window.title("My To-Do App")
-window.geometry("1450x800")
+main_scrollbar = tk.Scrollbar(
+    main_frame,
+    orient="vertical",
+    command=main_canvas.yview
+)
 
-# Allow window resizing
-window.resizable(False, False)
+main_scrollbar.pack(
+    side="right",
+    fill="y"
+)
+
+main_canvas.pack(
+    side="left",
+    fill="both",
+    expand=True
+)
+
+main_canvas.configure(
+    yscrollcommand=main_scrollbar.set
+)
+
+
+# Frame containing the entire app
+
+main_frame = tk.Frame(main_canvas)
+
+main_main_frame = main_canvas.create_window(
+    (0, 0),
+    window=main_frame,
+    anchor="nw"
+)
+
+
+# Update scrollable area
+
+main_frame.bind(
+    "<Configure>",
+    lambda event: main_canvas.configure(
+        scrollregion=main_canvas.bbox("all")
+    )
+)
+
+
+# Make the page width match the main_frame
+
+main_canvas.bind(
+    "<Configure>",
+    lambda event: main_canvas.itemconfig(
+        main_main_frame,
+        width=event.width
+    )
+)
+
+def scroll_page(event):
+    main_canvas.yview_scroll(
+        int(-1 * (event.delta / 120)),
+        "units"
+    )
+
+
+main_canvas.bind_all(
+    "<MouseWheel>",
+    scroll_page
+)
 
 light_image = tk.PhotoImage(file="light_background.png")
 dark_image = tk.PhotoImage(file="dark_background.png")
 
-background_label = tk.Label(window, image=light_image)
+background_label = tk.Label(main_frame, image=light_image)
 background_label.place(x=0, y=0, relwidth=1, relheight=1)
 
 # -----------------------------
@@ -817,7 +973,7 @@ background_label.place(x=0, y=0, relwidth=1, relheight=1)
 # -----------------------------
 
 title = tk.Label(
-    window,
+    main_frame,
     text="My To-Do List",
     font=("Arial", 24, "bold")
 )
@@ -829,7 +985,7 @@ title.pack(pady=20)
 # Task Entry
 # -----------------------------
 
-input_frame = tk.Frame(window)
+input_frame = tk.Frame(main_frame)
 
 input_frame.pack(pady=10)
 
@@ -861,6 +1017,55 @@ task_entry.grid(
     padx=10,
     pady=5
 )
+
+# -----------------------------
+# Search Tasks
+# -----------------------------
+
+search_frame = tk.Frame(main_frame)
+
+search_frame.pack(pady=5)
+
+search_label = tk.Label(
+    search_frame,
+    text="🔎 Search Tasks:",
+    font=("Arial", 13, "bold")
+)
+
+search_label.pack(side="left", padx=5)
+
+
+search_entry = tk.Entry(
+    search_frame,
+    width=35,
+    font=("Arial", 13)
+)
+
+search_entry.pack(side="left", padx=5)
+
+
+search_button = tk.Button(
+    search_frame,
+    text="Search",
+    command=search_tasks,
+    font=("Arial", 11),
+    padx=10,
+    pady=5
+)
+
+search_button.pack(side="left", padx=5)
+
+
+clear_search_button = tk.Button(
+    search_frame,
+    text="Clear",
+    command=lambda: clear_search(),
+    font=("Arial", 11),
+    padx=10,
+    pady=5
+)
+
+clear_search_button.pack(side="left", padx=5)
 
 # -----------------------------
 # Due Date
@@ -997,7 +1202,7 @@ add_button.grid(
 # -----------------------------
 
 task_container = tk.Frame(
-    window,
+    main_frame,
     width=600,
     height=350,
     bd=2,
@@ -1068,6 +1273,10 @@ task_frame.grid_columnconfigure(0, weight=1)
 
 task_vars = []
 
+def clear_search():
+    search_entry.delete(0, tk.END)
+    display_tasks()
+
 
 # -----------------------------
 # Statistics
@@ -1077,7 +1286,7 @@ task_vars = []
 # Top Bar
 # -----------------------------
 
-top_bar = tk.Frame(window)
+top_bar = tk.Frame(main_frame)
 top_bar.pack(fill="x", padx=30, pady=10)
 
 # Statistics - top left
@@ -1118,4 +1327,4 @@ display_tasks()
 # Run application
 # -----------------------------
 
-window.mainloop()
+main_frame.mainloop()
