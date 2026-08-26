@@ -580,15 +580,53 @@ def update_statistics():
         if task["completed"]
     )
 
+
     remaining = total - completed
 
     statistics_label.config(
         text=f"Total: {total}    Completed: {completed}    Remaining: {remaining}"
     )
 
+
+def sort_tasks(task_list):
+    selected_sort = sort_var.get()
+
+    if selected_sort == "Default order":
+        return task_list
+
+    priority_order = {"High": 0, "Medium": 1, "Low": 2}
+
+    def due_date_key(task):
+        due_date = task.get("due_date", "")
+        if not due_date:
+            return datetime.max
+
+        due = datetime.strptime(due_date, "%d/%m/%Y")
+        end_time = task.get("end_time", "")
+        if end_time:
+            parsed_time = datetime.strptime(end_time, "%H:%M")
+            due = due.replace(hour=parsed_time.hour, minute=parsed_time.minute)
+        else:
+            due = due.replace(hour=23, minute=59, second=59)
+        return due
+
+    if selected_sort == "Due date (earliest first)":
+        return sorted(task_list, key=due_date_key)
+
+    if selected_sort == "Due date (latest first)":
+        return sorted(task_list, key=due_date_key, reverse=True)
+
+    reverse_priority = selected_sort == "Priority (low to high)"
+    return sorted(
+        task_list,
+        key=lambda task: priority_order.get(task.get("priority", "Medium"), 1),
+        reverse=reverse_priority
+    )
+
 def search_tasks():
     search_text = search_entry.get().lower().strip()
     selected_priority = priority_filter_var.get()
+    selected_due_status = due_filter_var.get()
 
     # Remove current task widgets
     for widget in task_frame.winfo_children():
@@ -608,7 +646,22 @@ def search_tasks():
             selected_priority == "All priorities"
             or task.get("priority", "Medium") == selected_priority
         )
+        and (
+            selected_due_status == "All due statuses"
+            or (
+                selected_due_status == "No due date"
+                and not task.get("due_date", "")
+            )
+            or (
+                task.get("due_date", "")
+                and selected_due_status in get_date_status(
+                    task["due_date"],
+                    task.get("end_time", "")
+                )
+            )
+        )
     ]
+    filtered_tasks = sort_tasks(filtered_tasks)
 
     # Display filtered tasks
     for index, task in enumerate(filtered_tasks):
@@ -1192,6 +1245,34 @@ priority_filter_menu.config(
 
 priority_filter_menu.pack(side="left", padx=5)
 
+due_filter_label = tk.Label(
+    search_frame,
+    text="Due:",
+    font=("Arial", 13, "bold")
+)
+
+due_filter_label.pack(side="left", padx=(15, 5))
+
+due_filter_var = tk.StringVar(value="All due statuses")
+
+due_filter_menu = tk.OptionMenu(
+    search_frame,
+    due_filter_var,
+    "All due statuses",
+    "Overdue",
+    "Due Today",
+    "Upcoming",
+    "No due date",
+    command=lambda _: search_tasks()
+)
+
+due_filter_menu.config(
+    font=("Arial", 11),
+    width=15
+)
+
+due_filter_menu.pack(side="left", padx=5)
+
 # -----------------------------
 # Due Date
 # -----------------------------
@@ -1369,6 +1450,31 @@ task_container.pack(
 
 task_container.pack_propagate(False)
 
+sort_frame = tk.Frame(task_container)
+sort_frame.pack(fill="x", padx=8, pady=5)
+
+sort_label = tk.Label(
+    sort_frame,
+    text="Sort tasks by:",
+    font=("Arial", 11, "bold")
+)
+sort_label.pack(side="left", padx=(0, 5))
+
+sort_var = tk.StringVar(value="Default order")
+
+sort_menu = tk.OptionMenu(
+    sort_frame,
+    sort_var,
+    "Default order",
+    "Due date (earliest first)",
+    "Due date (latest first)",
+    "Priority (high to low)",
+    "Priority (low to high)",
+    command=lambda _: search_tasks()
+)
+sort_menu.config(font=("Arial", 11), width=24)
+sort_menu.pack(side="left")
+
 # Canvas
 canvas = tk.Canvas(
     task_container,
@@ -1429,6 +1535,8 @@ task_vars = []
 def clear_search():
     search_entry.delete(0, tk.END)
     priority_filter_var.set("All priorities")
+    due_filter_var.set("All due statuses")
+    sort_var.set("Default order")
     display_tasks()
 
 
