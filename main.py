@@ -10,6 +10,7 @@ from datetime import datetime
 # -----------------------------
 
 DATABASE_NAME="tasks.db"
+labels = []
 
 
 # -----------------------------
@@ -72,7 +73,15 @@ def initialize_database():
                 start_time TEXT,
             due_date TEXT,
             end_time TEXT,
-            priority TEXT DEFAULT 'Medium'
+            priority TEXT DEFAULT 'Medium',
+            label TEXT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS labels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL
         )
     """)
 
@@ -96,6 +105,9 @@ def initialize_database():
             "ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'"
         )
 
+    if "label" not in columns:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN label TEXT")
+
     connection.commit()
     connection.close()
 
@@ -109,7 +121,7 @@ def load_tasks():
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT id, task, description, completed, start_time, due_date, end_time, priority
+        SELECT id, task, description, completed, start_time, due_date, end_time, priority, label
         FROM tasks
         ORDER BY id
     """)
@@ -129,10 +141,20 @@ def load_tasks():
             "start_time": row[4],
             "due_date": row[5],
             "end_time": row[6],
-            "priority": row[7] if row[7] else "Medium"
+            "priority": row[7] if row[7] else "Medium",
+            "label": row[8] or ""
         })
 
     return tasks
+
+
+def load_labels():
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
+    cursor.execute("SELECT name FROM labels ORDER BY name COLLATE NOCASE")
+    label_names = [row[0] for row in cursor.fetchall()]
+    connection.close()
+    return label_names
 
 # -----------------------------
 # Save tasks to SQLite
@@ -150,8 +172,8 @@ def save_tasks():
         cursor.execute(
             """
             INSERT INTO tasks
-            (task, description, completed, start_time, due_date, end_time, priority)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (task, description, completed, start_time, due_date, end_time, priority, label)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task["task"],
@@ -160,7 +182,8 @@ def save_tasks():
                 task.get("start_time", ""),
                 task.get("due_date", ""),
                 task.get("end_time", ""),
-                task.get("priority", "Medium")
+                task.get("priority", "Medium"),
+                task.get("label", "")
             )
         )
 
@@ -177,6 +200,7 @@ def add_task():
     end_time = end_time_entry.get().strip()
     description = description_entry.get("1.0", tk.END).strip()
     priority = priority_var.get()
+    label = label_var.get()
     start_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     if not task_text:
@@ -211,8 +235,8 @@ def add_task():
 
     cursor.execute("""
         INSERT INTO tasks
-        (task, description, completed, start_time, due_date, end_time, priority)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (task, description, completed, start_time, due_date, end_time, priority, label)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         task_text,
         description,
@@ -220,7 +244,8 @@ def add_task():
         start_time,
         due_date,
         end_time,
-        priority
+        priority,
+        label
     ))
 
     connection.commit()
@@ -233,12 +258,54 @@ def add_task():
     description_entry.delete("1.0", tk.END)
 
     priority_var.set("Medium")
+    label_var.set("No label")
 
     # Reload tasks
     tasks.clear()
     tasks.extend(load_tasks())
 
     display_tasks()
+
+
+def refresh_label_menus():
+    label_names = ["No label"] + labels
+    label_menu["menu"].delete(0, "end")
+    label_filter_menu["menu"].delete(0, "end")
+
+    for name in label_names:
+        label_menu["menu"].add_command(
+            label=name,
+            command=lambda value=name: label_var.set(value)
+        )
+
+    for name in ["All labels"] + labels:
+        label_filter_menu["menu"].add_command(
+            label=name,
+            command=lambda value=name: select_label_filter(value)
+        )
+
+
+def select_label_filter(value):
+    label_filter_var.set(value)
+    search_tasks()
+
+
+def add_label():
+    label_name = new_label_entry.get().strip()
+    if not label_name:
+        return
+
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
+    cursor.execute("INSERT OR IGNORE INTO labels (name) VALUES (?)", (label_name,))
+    connection.commit()
+    connection.close()
+
+    labels.clear()
+    labels.extend(load_labels())
+    refresh_label_menus()
+    label_var.set(label_name)
+    new_label_entry.delete(0, tk.END)
 
 # -----------------------------
 # Delete a task
@@ -413,6 +480,23 @@ def edit_task(index):
         pady=5
     )
 
+    edit_label_label = tk.Label(
+        edit_main_frame,
+        text="Label:",
+        font=("Arial", 13, "bold")
+    )
+    edit_label_label.pack(anchor="w", padx=30, pady=(15, 5))
+
+    edit_label_var = tk.StringVar(value=task.get("label", "") or "No label")
+    edit_label_menu = tk.OptionMenu(
+        edit_main_frame,
+        edit_label_var,
+        "No label",
+        *labels
+    )
+    edit_label_menu.config(font=("Arial", 12), width=15)
+    edit_label_menu.pack(anchor="w", padx=30, pady=5)
+
     # Description label
     description_label = tk.Label(
         edit_main_frame,
@@ -450,6 +534,9 @@ def edit_task(index):
         new_end_time = edit_end_time_entry.get().strip()
         new_description = edit_description.get("1.0", tk.END).strip()
         new_priority = edit_priority_var.get()
+        new_label = edit_label_var.get()
+        if new_label == "No label":
+            new_label = ""
 
         if not new_task:
             return
@@ -500,7 +587,8 @@ def edit_task(index):
                 description = ?,
                 due_date = ?,
                 end_time = ?,
-                priority = ?
+                priority = ?,
+                label = ?
             WHERE id = ?
         """, (
             new_task,
@@ -508,6 +596,7 @@ def edit_task(index):
             new_due_date,
             new_end_time,
             new_priority,
+            new_label,
             task["id"]
         ))
 
@@ -520,6 +609,7 @@ def edit_task(index):
         task["due_date"] = new_due_date
         task["end_time"] = new_end_time
         task["priority"] = new_priority
+        task["label"] = new_label
 
         # Refresh task list
         display_tasks()
@@ -627,6 +717,7 @@ def search_tasks():
     search_text = search_entry.get().lower().strip()
     selected_priority = priority_filter_var.get()
     selected_due_status = due_filter_var.get()
+    selected_label = label_filter_var.get()
 
     # Remove current task widgets
     for widget in task_frame.winfo_children():
@@ -658,6 +749,14 @@ def search_tasks():
                     task["due_date"],
                     task.get("end_time", "")
                 )
+            )
+        )
+        and (
+            selected_label == "All labels"
+            or task.get("label", "") == selected_label
+            or (
+                selected_label == "No label"
+                and not task.get("label", "")
             )
         )
     ]
@@ -716,6 +815,21 @@ def search_tasks():
             pady=10
         )
 
+        details_button = tk.Button(
+            task_frame,
+            text="Details",
+            command=lambda t=task: show_task_details(t),
+            font=("Arial", 11),
+            width=8
+        )
+
+        details_button.grid(
+            row=index,
+            column=3,
+            padx=5,
+            pady=10
+        )
+
     update_statistics()
 
 
@@ -730,6 +844,54 @@ def toggle_searched_task(task, checked_var=None):
 
     save_tasks()
     update_statistics()
+
+
+def show_task_details(task):
+    details_window = tk.Toplevel(window)
+    details_window.title("Task Details")
+    details_window.geometry("460x420")
+    details_window.resizable(False, False)
+    details_window.transient(window)
+
+    due_date = task.get("due_date", "")
+    end_time = task.get("end_time", "")
+    if due_date:
+        deadline = f"{due_date} {end_time}".rstrip()
+        status = get_date_status(due_date, end_time)
+    else:
+        deadline = "No due date"
+        status = "No deadline"
+
+    details = (
+        f"Task: {task.get('task', '')}\n"
+        f"Description: {task.get('description', '') or 'No description'}\n"
+        f"Label: {task.get('label', '') or 'No label'}\n"
+        f"Priority: {task.get('priority', 'Medium')}\n"
+        f"Started: {task.get('start_time', '') or 'Unavailable'}\n"
+        f"Deadline: {deadline}\n"
+        f"Status: {status}\n"
+        f"Completed: {'Yes' if task.get('completed') else 'No'}"
+    )
+
+    details_label = tk.Label(
+        details_window,
+        text=details,
+        justify="left",
+        anchor="nw",
+        font=("Arial", 12),
+        wraplength=410
+    )
+    details_label.pack(fill="both", expand=True, padx=25, pady=25)
+
+    close_button = tk.Button(
+        details_window,
+        text="Close",
+        command=details_window.destroy,
+        font=("Arial", 11),
+        padx=15,
+        pady=5
+    )
+    close_button.pack(pady=(0, 20))
 
 # -----------------------------
 # Display all tasks
@@ -756,7 +918,7 @@ def display_tasks():
             task_frame,
             text=task["task"],
             variable=var,
-            command=lambda i=index: toggle_task(i),
+            command=lambda checked_var=var, t=task: toggle_searched_task(t, checked_var),
             font=("Arial", 14),
             anchor="w"
         )
@@ -776,7 +938,7 @@ def display_tasks():
         edit_button = tk.Button(
             task_frame,
             text="Edit",
-            command=lambda i=index: edit_task(i),
+            command=lambda t=task: edit_task(tasks.index(t)),
             font=("Arial", 11),
             width=8,
             padx=10,
@@ -797,7 +959,7 @@ def display_tasks():
         delete_button = tk.Button(
             task_frame,
             text="Delete",
-            command=lambda i=index: delete_task(i),
+            command=lambda t=task: delete_task(tasks.index(t)),
             font=("Arial", 11),
             width=8,
             padx=10,
@@ -807,6 +969,23 @@ def display_tasks():
         delete_button.grid(
             row=index * 5,
             column=2,
+            padx=10,
+            pady=5
+        )
+
+        details_button = tk.Button(
+            task_frame,
+            text="Details",
+            command=lambda t=task: show_task_details(t),
+            font=("Arial", 11),
+            width=8,
+            padx=10,
+            pady=5
+        )
+
+        details_button.grid(
+            row=index * 5,
+            column=3,
             padx=10,
             pady=5
         )
@@ -899,7 +1078,12 @@ def display_tasks():
 
         priority_display = tk.Label(
             task_frame,
-            text=f"Priority: {priority_text}",
+            text=(
+                f"Priority: {priority_text}   "
+                f"Label: {task['label']}"
+                if task.get("label", "")
+                else f"Priority: {priority_text}"
+            ),
             font=("Arial", 10),
             anchor="w"
         )
@@ -913,10 +1097,12 @@ def display_tasks():
             pady=(0, 8)
         )
 
+
     # Make columns behave correctly
     task_frame.grid_columnconfigure(0, weight=1)
     task_frame.grid_columnconfigure(1, weight=0)
     task_frame.grid_columnconfigure(2, weight=0)
+    task_frame.grid_columnconfigure(3, weight=0)
 
     update_statistics()
 # -----------------------------
@@ -1273,6 +1459,23 @@ due_filter_menu.config(
 
 due_filter_menu.pack(side="left", padx=5)
 
+label_filter_label = tk.Label(
+    search_frame,
+    text="Label:",
+    font=("Arial", 13, "bold")
+)
+label_filter_label.pack(side="left", padx=(15, 5))
+
+label_filter_var = tk.StringVar(value="All labels")
+label_filter_menu = tk.OptionMenu(
+    search_frame,
+    label_filter_var,
+    "All labels",
+    command=lambda value: select_label_filter(value)
+)
+label_filter_menu.config(font=("Arial", 11), width=15)
+label_filter_menu.pack(side="left", padx=5)
+
 # -----------------------------
 # Due Date
 # -----------------------------
@@ -1378,6 +1581,41 @@ priority_menu.pack(
     side="left"
 )
 
+label_frame = tk.Frame(input_frame)
+label_frame.grid(
+    row=6,
+    column=0,
+    columnspan=2,
+    sticky="w",
+    padx=10,
+    pady=5
+)
+
+label_label = tk.Label(
+    label_frame,
+    text="Label:",
+    font=("Arial", 13, "bold")
+)
+label_label.pack(side="left", padx=(0, 15))
+
+label_var = tk.StringVar(value="No label")
+label_menu = tk.OptionMenu(label_frame, label_var, "No label")
+label_menu.config(font=("Arial", 12), width=12)
+label_menu.pack(side="left", padx=(0, 8))
+
+new_label_entry = tk.Entry(label_frame, width=18, font=("Arial", 12))
+new_label_entry.pack(side="left", padx=5)
+
+create_label_button = tk.Button(
+    label_frame,
+    text="Create Label",
+    command=add_label,
+    font=("Arial", 11),
+    padx=8,
+    pady=4
+)
+create_label_button.pack(side="left", padx=5)
+
 # -----------------------------
 # Description
 # -----------------------------
@@ -1389,7 +1627,7 @@ description_label = tk.Label(
 )
 
 description_label.grid(
-    row=7,
+    row=8,
     column=0,
     sticky="w",
     padx=10,
@@ -1404,7 +1642,7 @@ description_entry = tk.Text(
 )
 
 description_entry.grid(
-    row=8,
+    row=9,
     column=0,
     padx=10,
     pady=5
@@ -1424,7 +1662,7 @@ add_button = tk.Button(
 )
 
 add_button.grid(
-    row=8,
+    row=9,
     column=1,
     padx=20,
     pady=10
@@ -1536,6 +1774,7 @@ def clear_search():
     search_entry.delete(0, tk.END)
     priority_filter_var.set("All priorities")
     due_filter_var.set("All due statuses")
+    label_filter_var.set("All labels")
     sort_var.set("Default order")
     display_tasks()
 
@@ -1580,6 +1819,9 @@ theme_button.pack(side="right")
 # -----------------------------
 
 initialize_database()
+
+labels.extend(load_labels())
+refresh_label_menus()
 
 tasks = load_tasks()
 

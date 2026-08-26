@@ -10,6 +10,7 @@ A simple desktop To-Do application built using Python and Tkinter.
 - Record the task start time automatically when it is entered
 - Show an overdue status when the current date passes the due date
 - Filter tasks by priority
+- Create labels, assign them to tasks, and filter tasks by label
 - Save tasks
 - Load tasks automatically
 
