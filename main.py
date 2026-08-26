@@ -74,7 +74,8 @@ def initialize_database():
             due_date TEXT,
             end_time TEXT,
             priority TEXT DEFAULT 'Medium',
-            label TEXT
+            label TEXT,
+            starred INTEGER DEFAULT 0
         )
     """)
 
@@ -108,6 +109,11 @@ def initialize_database():
     if "label" not in columns:
         cursor.execute("ALTER TABLE tasks ADD COLUMN label TEXT")
 
+    if "starred" not in columns:
+        cursor.execute(
+            "ALTER TABLE tasks ADD COLUMN starred INTEGER DEFAULT 0"
+        )
+
     connection.commit()
     connection.close()
 
@@ -121,7 +127,7 @@ def load_tasks():
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT id, task, description, completed, start_time, due_date, end_time, priority, label
+        SELECT id, task, description, completed, start_time, due_date, end_time, priority, label, starred
         FROM tasks
         ORDER BY id
     """)
@@ -142,7 +148,8 @@ def load_tasks():
             "due_date": row[5],
             "end_time": row[6],
             "priority": row[7] if row[7] else "Medium",
-            "label": row[8] or ""
+            "label": row[8] or "",
+            "starred": bool(row[9])
         })
 
     return tasks
@@ -172,8 +179,8 @@ def save_tasks():
         cursor.execute(
             """
             INSERT INTO tasks
-            (task, description, completed, start_time, due_date, end_time, priority, label)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (task, description, completed, start_time, due_date, end_time, priority, label, starred)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task["task"],
@@ -183,7 +190,8 @@ def save_tasks():
                 task.get("due_date", ""),
                 task.get("end_time", ""),
                 task.get("priority", "Medium"),
-                task.get("label", "")
+                task.get("label", ""),
+                int(task.get("starred", False))
             )
         )
 
@@ -235,8 +243,8 @@ def add_task():
 
     cursor.execute("""
         INSERT INTO tasks
-        (task, description, completed, start_time, due_date, end_time, priority, label)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (task, description, completed, start_time, due_date, end_time, priority, label, starred)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         task_text,
         description,
@@ -245,7 +253,8 @@ def add_task():
         due_date,
         end_time,
         priority,
-        label
+        label,
+        0
     ))
 
     connection.commit()
@@ -672,9 +681,25 @@ def update_statistics():
 
 
     remaining = total - completed
+    completion_rate = round((completed / total) * 100) if total else 0
+    overdue = sum(
+        1 for task in tasks
+        if task.get("due_date", "")
+        and get_date_status(
+            task["due_date"],
+            task.get("end_time", "")
+        ) == "⚠️ Overdue"
+    )
+    starred = sum(1 for task in tasks if task.get("starred", False))
 
     statistics_label.config(
         text=f"Total: {total}    Completed: {completed}    Remaining: {remaining}"
+    )
+    productivity_label.config(
+        text=(
+            f"Productivity: {completion_rate}%    "
+            f"Overdue: {overdue}    Starred: {starred}"
+        )
     )
 
 
@@ -682,35 +707,42 @@ def sort_tasks(task_list):
     selected_sort = sort_var.get()
 
     if selected_sort == "Default order":
-        return task_list
+        sorted_tasks = list(task_list)
+    else:
+        priority_order = {"High": 0, "Medium": 1, "Low": 2}
 
-    priority_order = {"High": 0, "Medium": 1, "Low": 2}
+        def due_date_key(task):
+            due_date = task.get("due_date", "")
+            if not due_date:
+                return datetime.max
 
-    def due_date_key(task):
-        due_date = task.get("due_date", "")
-        if not due_date:
-            return datetime.max
+            due = datetime.strptime(due_date, "%d/%m/%Y")
+            end_time = task.get("end_time", "")
+            if end_time:
+                parsed_time = datetime.strptime(end_time, "%H:%M")
+                due = due.replace(hour=parsed_time.hour, minute=parsed_time.minute)
+            else:
+                due = due.replace(hour=23, minute=59, second=59)
+            return due
 
-        due = datetime.strptime(due_date, "%d/%m/%Y")
-        end_time = task.get("end_time", "")
-        if end_time:
-            parsed_time = datetime.strptime(end_time, "%H:%M")
-            due = due.replace(hour=parsed_time.hour, minute=parsed_time.minute)
+        if selected_sort == "Due date (earliest first)":
+            sorted_tasks = sorted(task_list, key=due_date_key)
+
+        elif selected_sort == "Due date (latest first)":
+            sorted_tasks = sorted(task_list, key=due_date_key, reverse=True)
+
         else:
-            due = due.replace(hour=23, minute=59, second=59)
-        return due
+            reverse_priority = selected_sort == "Priority (low to high)"
+            sorted_tasks = sorted(
+                task_list,
+                key=lambda task: priority_order.get(task.get("priority", "Medium"), 1),
+                reverse=reverse_priority
+            )
 
-    if selected_sort == "Due date (earliest first)":
-        return sorted(task_list, key=due_date_key)
-
-    if selected_sort == "Due date (latest first)":
-        return sorted(task_list, key=due_date_key, reverse=True)
-
-    reverse_priority = selected_sort == "Priority (low to high)"
     return sorted(
-        task_list,
-        key=lambda task: priority_order.get(task.get("priority", "Medium"), 1),
-        reverse=reverse_priority
+        sorted_tasks,
+        key=lambda task: task.get("starred", False),
+        reverse=True
     )
 
 def search_tasks():
@@ -830,6 +862,15 @@ def search_tasks():
             pady=10
         )
 
+        star_button = tk.Button(
+            task_frame,
+            text="★" if task.get("starred") else "☆",
+            command=lambda t=task: toggle_star(t),
+            font=("Arial", 14),
+            width=3
+        )
+        star_button.grid(row=index, column=4, padx=5, pady=10)
+
     update_statistics()
 
 
@@ -844,6 +885,21 @@ def toggle_searched_task(task, checked_var=None):
 
     save_tasks()
     update_statistics()
+
+
+def toggle_star(task):
+    task["starred"] = not task.get("starred", False)
+
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
+    cursor.execute(
+        "UPDATE tasks SET starred = ? WHERE id = ?",
+        (int(task["starred"]), task["id"])
+    )
+    connection.commit()
+    connection.close()
+
+    search_tasks()
 
 
 def show_task_details(task):
@@ -871,6 +927,7 @@ def show_task_details(task):
         f"Deadline: {deadline}\n"
         f"Status: {status}\n"
         f"Completed: {'Yes' if task.get('completed') else 'No'}"
+        f"\nStarred: {'Yes' if task.get('starred') else 'No'}"
     )
 
     details_label = tk.Label(
@@ -990,6 +1047,20 @@ def display_tasks():
             pady=5
         )
 
+        star_button = tk.Button(
+            task_frame,
+            text="★" if task.get("starred") else "☆",
+            command=lambda t=task: toggle_star(t),
+            font=("Arial", 14),
+            width=3
+        )
+        star_button.grid(
+            row=index * 5,
+            column=4,
+            padx=10,
+            pady=5
+        )
+
         # -----------------------------
         # Description
         # -----------------------------
@@ -1103,6 +1174,7 @@ def display_tasks():
     task_frame.grid_columnconfigure(1, weight=0)
     task_frame.grid_columnconfigure(2, weight=0)
     task_frame.grid_columnconfigure(3, weight=0)
+    task_frame.grid_columnconfigure(4, weight=0)
 
     update_statistics()
 # -----------------------------
@@ -1188,6 +1260,11 @@ def toggle_theme():
 
     # Statistics
     statistics_label.config(
+        bg=bg,
+        fg=fg
+    )
+
+    productivity_label.config(
         bg=bg,
         fg=fg
     )
@@ -1798,6 +1875,14 @@ statistics_label = tk.Label(
 )
 
 statistics_label.pack(side="left")
+
+productivity_label = tk.Label(
+    top_bar,
+    text="Productivity: 0%    Overdue: 0    Starred: 0",
+    font=("Arial", 11)
+)
+
+productivity_label.pack(side="left", padx=25)
 
 
 # Light / Dark Mode - top right
