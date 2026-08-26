@@ -41,13 +41,13 @@ def get_date_status(due_date):
     ).date()
 
     if due < today:
-        return "🔴 Overdue"
+        return "⚠️ Overdue"
 
     elif due == today:
-        return "🟡 Due Today"
+        return "🗓️ Due Today"
 
     else:
-        return "🟢 Upcoming"
+        return "⏰ Upcoming"
 
 
 # -----------------------------
@@ -64,6 +64,7 @@ def initialize_database():
             task TEXT NOT NULL,
             description TEXT,
             completed INTEGER DEFAULT 0,
+                start_time TEXT,
             due_date TEXT,
             priority TEXT DEFAULT 'Medium'
         )
@@ -71,9 +72,12 @@ def initialize_database():
 
     connection.commit()
 
-    # Add due_date and priority columns to an existing database if they don't exist
+    # Add task date columns to an existing database if they don't exist
     cursor.execute("PRAGMA table_info(tasks)")
     columns = [column[1] for column in cursor.fetchall()]
+
+    if "start_time" not in columns:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN start_time TEXT")
 
     if "due_date" not in columns:
         cursor.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
@@ -96,7 +100,7 @@ def load_tasks():
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT id, task, description, completed, due_date, priority
+        SELECT id, task, description, completed, start_time, due_date, priority
         FROM tasks
         ORDER BY id
     """)
@@ -113,8 +117,9 @@ def load_tasks():
             "task": row[1],
             "description": row[2],
             "completed": bool(row[3]),
-            "due_date": row[4],
-            "priority": row[5] if row[5] else "Medium"
+            "start_time": row[4],
+            "due_date": row[5],
+            "priority": row[6] if row[6] else "Medium"
         })
 
     return tasks
@@ -135,13 +140,14 @@ def save_tasks():
         cursor.execute(
             """
             INSERT INTO tasks
-            (task, description, completed, due_date, priority)
-            VALUES (?, ?, ?, ?, ?)
+            (task, description, completed, start_time, due_date, priority)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 task["task"],
                 task["description"],
                 task["completed"],
+                task.get("start_time", ""),
                 task.get("due_date", ""),
                 task.get("priority", "Medium")
             )
@@ -159,6 +165,7 @@ def add_task():
     due_date = due_date_entry.get().strip()
     description = description_entry.get("1.0", tk.END).strip()
     priority = priority_var.get()
+    start_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     if not task_text:
         return
@@ -181,12 +188,13 @@ def add_task():
 
     cursor.execute("""
         INSERT INTO tasks
-        (task, description, completed, due_date, priority)
-        VALUES (?, ?, ?, ?, ?)
+        (task, description, completed, start_time, due_date, priority)
+        VALUES (?, ?, ?, ?, ?, ?)
     """, (
         task_text,
         description,
         0,
+        start_time,
         due_date,
         priority
     ))
@@ -614,7 +622,7 @@ def display_tasks():
         )
 
         checkbox.grid(
-            row=index * 4,
+            row=index * 5,
             column=0,
             sticky="w",
             padx=15,
@@ -636,7 +644,7 @@ def display_tasks():
         )
 
         edit_button.grid(
-            row=index * 4,
+            row=index * 5,
             column=1,
             padx=10,
             pady=5
@@ -657,7 +665,7 @@ def display_tasks():
         )
 
         delete_button.grid(
-            row=index * 4,
+            row=index * 5,
             column=2,
             padx=10,
             pady=5
@@ -675,7 +683,7 @@ def display_tasks():
         )
 
         description.grid(
-            row=index * 4 + 1,
+            row=index * 5 + 1,
             column=0,
             columnspan=3,
             sticky="w",
@@ -684,10 +692,33 @@ def display_tasks():
         )
 
         # -----------------------------
-        # Due date
+        # Start and end dates
         # -----------------------------
 
+        start_time_value = task.get("start_time", "")
         due_date_value = task.get("due_date", "")
+
+        start_text = (
+            f"Started: {start_time_value}"
+            if start_time_value
+            else "Start time unavailable"
+        )
+
+        start_time_label = tk.Label(
+            task_frame,
+            text=start_text,
+            font=("Arial", 10),
+            anchor="w"
+        )
+
+        start_time_label.grid(
+            row=index * 5 + 2,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            padx=40,
+            pady=(0, 2)
+        )
 
         if due_date_value:
             date_status = get_date_status(due_date_value)
@@ -703,7 +734,7 @@ def display_tasks():
         )
 
         due_date_label.grid(
-            row=index * 4 + 2,
+            row=index * 5 + 3,
             column=0,
             columnspan=3,
             sticky="w",
@@ -732,7 +763,7 @@ def display_tasks():
         )
 
         priority_display.grid(
-            row=index * 4 + 3,
+            row=index * 5 + 4,
             column=0,
             columnspan=3,
             sticky="w",
