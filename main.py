@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import messagebox
 import sqlite3
 import os
 from datetime import datetime
@@ -28,22 +29,26 @@ DARK_FG = "#F20059"
 DARK_BUTTON = "#6C4A8E"
 DARK_ENTRY = "#333333"
 
-def get_date_status(due_date):
+def get_date_status(due_date, end_time=""):
 
     if not due_date:
         return ""
 
-    today = datetime.now().date()
+    now = datetime.now()
+    due = datetime.strptime(due_date, "%d/%m/%Y")
 
-    due = datetime.strptime(
-        due_date,
-        "%d/%m/%Y"
-    ).date()
+    if end_time:
+        due = due.replace(
+            hour=datetime.strptime(end_time, "%H:%M").hour,
+            minute=datetime.strptime(end_time, "%H:%M").minute
+        )
+    else:
+        due = due.replace(hour=23, minute=59, second=59)
 
-    if due < today:
+    if now > due:
         return "⚠️ Overdue"
 
-    elif due == today:
+    elif now.date() == due.date():
         return "🗓️ Due Today"
 
     else:
@@ -66,6 +71,7 @@ def initialize_database():
             completed INTEGER DEFAULT 0,
                 start_time TEXT,
             due_date TEXT,
+            end_time TEXT,
             priority TEXT DEFAULT 'Medium'
         )
     """)
@@ -81,6 +87,9 @@ def initialize_database():
 
     if "due_date" not in columns:
         cursor.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
+
+    if "end_time" not in columns:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN end_time TEXT")
 
     if "priority" not in columns:
         cursor.execute(
@@ -100,7 +109,7 @@ def load_tasks():
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT id, task, description, completed, start_time, due_date, priority
+        SELECT id, task, description, completed, start_time, due_date, end_time, priority
         FROM tasks
         ORDER BY id
     """)
@@ -119,7 +128,8 @@ def load_tasks():
             "completed": bool(row[3]),
             "start_time": row[4],
             "due_date": row[5],
-            "priority": row[6] if row[6] else "Medium"
+            "end_time": row[6],
+            "priority": row[7] if row[7] else "Medium"
         })
 
     return tasks
@@ -140,8 +150,8 @@ def save_tasks():
         cursor.execute(
             """
             INSERT INTO tasks
-            (task, description, completed, start_time, due_date, priority)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (task, description, completed, start_time, due_date, end_time, priority)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task["task"],
@@ -149,6 +159,7 @@ def save_tasks():
                 task["completed"],
                 task.get("start_time", ""),
                 task.get("due_date", ""),
+                task.get("end_time", ""),
                 task.get("priority", "Medium")
             )
         )
@@ -163,6 +174,7 @@ def add_task():
 
     task_text = task_entry.get().strip()
     due_date = due_date_entry.get().strip()
+    end_time = end_time_entry.get().strip()
     description = description_entry.get("1.0", tk.END).strip()
     priority = priority_var.get()
     start_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -183,19 +195,31 @@ def add_task():
             print("Invalid date. Use DD/MM/YYYY.")
             return
 
+    if end_time:
+        try:
+            datetime.strptime(end_time, "%H:%M")
+        except ValueError:
+            print("Invalid end time. Use HH:MM (24-hour format).")
+            return
+
+    if end_time and not due_date:
+        print("Enter an end date before entering an end time.")
+        return
+
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
     cursor.execute("""
         INSERT INTO tasks
-        (task, description, completed, start_time, due_date, priority)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (task, description, completed, start_time, due_date, end_time, priority)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         task_text,
         description,
         0,
         start_time,
         due_date,
+        end_time,
         priority
     ))
 
@@ -205,6 +229,7 @@ def add_task():
     # Clear fields
     task_entry.delete(0, tk.END)
     due_date_entry.delete(0, tk.END)
+    end_time_entry.delete(0, tk.END)
     description_entry.delete("1.0", tk.END)
 
     priority_var.set("Medium")
@@ -249,8 +274,10 @@ def edit_task(index):
 
     edit_main_frame = tk.Toplevel(window)
     edit_main_frame.title("Edit Task")
-    edit_main_frame.geometry("500x450")
-    edit_main_frame.resizable(False, False)
+    edit_main_frame.geometry("500x650")
+    edit_main_frame.resizable(True, True)
+    edit_main_frame.transient(window)
+    edit_main_frame.grab_set()
 
     # -----------------------------
     # Task
@@ -283,6 +310,7 @@ def edit_task(index):
         0,
         task["task"]
     )
+    edit_task_entry.focus_set()
 
     # -----------------------------
     # Due Date
@@ -316,6 +344,35 @@ def edit_task(index):
     edit_due_date_entry.insert(
         0,
         task.get("due_date", "")
+    )
+
+    end_time_label = tk.Label(
+        edit_main_frame,
+        text="End Time (HH:MM, 24-hour):",
+        font=("Arial", 13, "bold")
+    )
+
+    end_time_label.pack(
+        anchor="w",
+        padx=30,
+        pady=(15, 5)
+    )
+
+    edit_end_time_entry = tk.Entry(
+        edit_main_frame,
+        width=15,
+        font=("Arial", 13)
+    )
+
+    edit_end_time_entry.pack(
+        anchor="w",
+        padx=30,
+        pady=5
+    )
+
+    edit_end_time_entry.insert(
+        0,
+        task.get("end_time", "")
     )
         # -----------------------------
     # Priority
@@ -390,6 +447,7 @@ def edit_task(index):
 
         new_task = edit_task_entry.get().strip()
         new_due_date = edit_due_date_entry.get().strip()
+        new_end_time = edit_end_time_entry.get().strip()
         new_description = edit_description.get("1.0", tk.END).strip()
         new_priority = edit_priority_var.get()
 
@@ -406,8 +464,31 @@ def edit_task(index):
                 )
 
             except ValueError:
-                print("Invalid date. Use DD/MM/YYYY.")
+                messagebox.showerror(
+                    "Invalid date",
+                    "Use DD/MM/YYYY for the due date.",
+                    parent=edit_main_frame
+                )
                 return
+
+        if new_end_time:
+            try:
+                datetime.strptime(new_end_time, "%H:%M")
+            except ValueError:
+                messagebox.showerror(
+                    "Invalid end time",
+                    "Use HH:MM in 24-hour format.",
+                    parent=edit_main_frame
+                )
+                return
+
+        if new_end_time and not new_due_date:
+            messagebox.showerror(
+                "Missing end date",
+                "Enter an end date before entering an end time.",
+                parent=edit_main_frame
+            )
+            return
 
         # Update SQLite database
         connection = sqlite3.connect(DATABASE_NAME)
@@ -418,12 +499,14 @@ def edit_task(index):
             SET task = ?,
                 description = ?,
                 due_date = ?,
+                end_time = ?,
                 priority = ?
             WHERE id = ?
         """, (
             new_task,
             new_description,
             new_due_date,
+            new_end_time,
             new_priority,
             task["id"]
         ))
@@ -435,6 +518,7 @@ def edit_task(index):
         task["task"] = new_task
         task["description"] = new_description
         task["due_date"] = new_due_date
+        task["end_time"] = new_end_time
         task["priority"] = new_priority
 
         # Refresh task list
@@ -454,6 +538,9 @@ def edit_task(index):
     save_button.pack(
         pady=20
     )
+
+    edit_main_frame.bind("<Return>", lambda event: save_changes())
+    edit_main_frame.bind("<Escape>", lambda event: edit_main_frame.destroy())
 
 # -----------------------------
 # Change task completion status
@@ -721,8 +808,10 @@ def display_tasks():
         )
 
         if due_date_value:
-            date_status = get_date_status(due_date_value)
-            due_text = f"Due: {due_date_value}   {date_status}"
+            end_time_value = task.get("end_time", "")
+            date_status = get_date_status(due_date_value, end_time_value)
+            end_text = f" at {end_time_value}" if end_time_value else ""
+            due_text = f"Ends: {due_date_value}{end_text}   {date_status}"
         else:
             due_text = "No due date"
 
@@ -1135,6 +1224,34 @@ due_date_entry.grid(
     pady=5
 )
 
+end_time_label = tk.Label(
+    input_frame,
+    text="End Time (HH:MM, 24-hour):",
+    font=("Arial", 12)
+)
+
+end_time_label.grid(
+    row=2,
+    column=1,
+    sticky="w",
+    padx=10,
+    pady=(5, 0)
+)
+
+end_time_entry = tk.Entry(
+    input_frame,
+    width=20,
+    font=("Arial", 13)
+)
+
+end_time_entry.grid(
+    row=3,
+    column=1,
+    sticky="w",
+    padx=10,
+    pady=5
+)
+
 # -----------------------------
 # Priority
 # -----------------------------
@@ -1142,7 +1259,7 @@ due_date_entry.grid(
 priority_frame = tk.Frame(input_frame)
 
 priority_frame.grid(
-    row=4,
+    row=5,
     column=0,
     columnspan=2,
     sticky="w",
@@ -1191,7 +1308,7 @@ description_label = tk.Label(
 )
 
 description_label.grid(
-    row=6,
+    row=7,
     column=0,
     sticky="w",
     padx=10,
@@ -1206,7 +1323,7 @@ description_entry = tk.Text(
 )
 
 description_entry.grid(
-    row=7,
+    row=8,
     column=0,
     padx=10,
     pady=5
@@ -1226,7 +1343,7 @@ add_button = tk.Button(
 )
 
 add_button.grid(
-    row=7,
+    row=8,
     column=1,
     padx=20,
     pady=10
