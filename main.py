@@ -28,7 +28,26 @@ DARK_FG = "#F20059"
 DARK_BUTTON = "#6C4A8E"
 DARK_ENTRY = "#333333"
 
+def get_date_status(due_date):
 
+    if not due_date:
+        return ""
+
+    today = datetime.now().date()
+
+    due = datetime.strptime(
+        due_date,
+        "%d/%m/%Y"
+    ).date()
+
+    if due < today:
+        return "🔴 Overdue"
+
+    elif due == today:
+        return "🟡 Due Today"
+
+    else:
+        return "🟢 Upcoming"
 
 
 # -----------------------------
@@ -220,7 +239,7 @@ def edit_task(index):
 
     task = tasks[index]
 
-    edit_main_frame = tk.Toplevel(main_frame)
+    edit_main_frame = tk.Toplevel(window)
     edit_main_frame.title("Edit Task")
     edit_main_frame.geometry("500x450")
     edit_main_frame.resizable(False, False)
@@ -474,6 +493,7 @@ def update_statistics():
 
 def search_tasks():
     search_text = search_entry.get().lower().strip()
+    selected_priority = priority_filter_var.get()
 
     # Remove current task widgets
     for widget in task_frame.winfo_children():
@@ -481,15 +501,19 @@ def search_tasks():
 
     task_vars.clear()
 
-    # Filter tasks
-    if search_text:
-        filtered_tasks = [
-            task for task in tasks
-            if search_text in task["task"].lower()
+    # Apply both filters when the user searches by text and priority.
+    filtered_tasks = [
+        task for task in tasks
+        if (
+            not search_text
+            or search_text in task["task"].lower()
             or search_text in task.get("description", "").lower()
-        ]
-    else:
-        filtered_tasks = tasks
+        )
+        and (
+            selected_priority == "All priorities"
+            or task.get("priority", "Medium") == selected_priority
+        )
+    ]
 
     # Display filtered tasks
     for index, task in enumerate(filtered_tasks):
@@ -501,7 +525,7 @@ def search_tasks():
             task_frame,
             text=task["task"],
             variable=var,
-            command=lambda t=task: toggle_searched_task(t),
+            command=lambda checked_var=var, t=task: toggle_searched_task(t, checked_var),
             font=("Arial", 14),
             anchor="w"
         )
@@ -547,15 +571,17 @@ def search_tasks():
     update_statistics()
 
 
-def toggle_searched_task(task):
+def toggle_searched_task(task, checked_var=None):
     # Find the actual task in the main list
     index = tasks.index(task)
 
-    tasks[index]["completed"] = task_vars[index].get()
+    if checked_var is not None:
+        tasks[index]["completed"] = checked_var.get()
+    else:
+        tasks[index]["completed"] = task_vars[index].get()
 
     save_tasks()
-    update_statistics()    
-
+    update_statistics()
 
 # -----------------------------
 # Display all tasks
@@ -661,14 +687,22 @@ def display_tasks():
         # Due date
         # -----------------------------
 
-        due_date = tk.Label(
+        due_date_value = task.get("due_date", "")
+
+        if due_date_value:
+            date_status = get_date_status(due_date_value)
+            due_text = f"Due: {due_date_value}   {date_status}"
+        else:
+            due_text = "No due date"
+
+        due_date_label = tk.Label(
             task_frame,
-            text=f"Due: {task.get('due_date', '')}",
+            text=due_text,
             font=("Arial", 10),
             anchor="w"
         )
 
-        due_date.grid(
+        due_date_label.grid(
             row=index * 4 + 2,
             column=0,
             columnspan=3,
@@ -706,66 +740,10 @@ def display_tasks():
             pady=(0, 8)
         )
 
-        for index, task in enumerate(tasks):
-
-            var = tk.BooleanVar(value=task["completed"])
-            task_vars.append(var)
-
-            # Task checkbox
-            checkbox = tk.Checkbutton(
-                task_frame,
-                text=task["task"],
-                variable=var,
-                command=lambda i=index: toggle_task(i),
-                font=("Arial", 14),
-                anchor="w"
-            )
-
-            checkbox.grid(
-                row=index,
-                column=0,
-                sticky="w",
-                padx=15,
-                pady=5
-            )
-
-
-            # Edit button
-            edit_button = tk.Button(
-                task_frame,
-                text="Edit",
-                command=lambda i=index: edit_task(i),
-                font=("Arial", 11),
-                width=8,
-                padx=5,
-                pady=4
-            )
-
-            edit_button.grid(
-                row=index,
-                column=1,
-                padx=5,
-                pady=5
-            )
-
-
-            # Delete button
-            delete_button = tk.Button(
-                task_frame,
-                text="Delete",
-                command=lambda i=index: delete_task(i),
-                font=("Arial", 11),
-                width=8,
-                padx=5,
-                pady=4
-            )
-
-            delete_button.grid(
-                row=index,
-                column=2,
-                padx=5,
-                pady=5
-            )
+    # Make columns behave correctly
+    task_frame.grid_columnconfigure(0, weight=1)
+    task_frame.grid_columnconfigure(1, weight=0)
+    task_frame.grid_columnconfigure(2, weight=0)
 
     update_statistics()
 # -----------------------------
@@ -879,13 +857,13 @@ def toggle_theme():
 
 
 # -----------------------------
-# Main main_frame
+# Main window
 # -----------------------------
-main_frame = tk.Tk()
+window = tk.Tk()
 
-main_frame.title("My To-Do App")
-main_frame.geometry("1450x800")
-main_frame.resizable(True, True)
+window.title("My To-Do App")
+window.geometry("1450x800")
+window.resizable(True, True)
 
 
 # -----------------------------
@@ -893,12 +871,12 @@ main_frame.resizable(True, True)
 # -----------------------------
 
 main_canvas = tk.Canvas(
-    main_frame,
+    window,
     highlightthickness=0
 )
 
 main_scrollbar = tk.Scrollbar(
-    main_frame,
+    window,
     orient="vertical",
     command=main_canvas.yview
 )
@@ -1066,6 +1044,33 @@ clear_search_button = tk.Button(
 )
 
 clear_search_button.pack(side="left", padx=5)
+
+priority_filter_label = tk.Label(
+    search_frame,
+    text="Priority:",
+    font=("Arial", 13, "bold")
+)
+
+priority_filter_label.pack(side="left", padx=(15, 5))
+
+priority_filter_var = tk.StringVar(value="All priorities")
+
+priority_filter_menu = tk.OptionMenu(
+    search_frame,
+    priority_filter_var,
+    "All priorities",
+    "High",
+    "Medium",
+    "Low",
+    command=lambda _: search_tasks()
+)
+
+priority_filter_menu.config(
+    font=("Arial", 11),
+    width=12
+)
+
+priority_filter_menu.pack(side="left", padx=5)
 
 # -----------------------------
 # Due Date
@@ -1275,6 +1280,7 @@ task_vars = []
 
 def clear_search():
     search_entry.delete(0, tk.END)
+    priority_filter_var.set("All priorities")
     display_tasks()
 
 
@@ -1327,4 +1333,4 @@ display_tasks()
 # Run application
 # -----------------------------
 
-main_frame.mainloop()
+window.mainloop()
