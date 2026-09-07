@@ -28,9 +28,13 @@ the application starts.
 
 ```text
 .
-├── main.py          # Tkinter window, layout, and UI event handlers
-├── database.py      # SQLite schema setup and task/label CRUD operations
-├── task_utils.py    # Date-status and sorting rules
+├── main.py           # Compatibility launcher for the application
+├── add/              # Application package
+│   ├── ui.py         # Tkinter window, layout, and UI event handlers
+│   ├── database.py   # SQLite schema setup and task/label CRUD operations
+│   ├── task_utils.py # Date-status and sorting rules
+│   ├── validation.py # Date and time validation helpers
+│   └── themes.py     # Light and dark theme definitions
 ├── assets/          # Background images used by the interface
 ├── tasks.db         # Runtime data file, created automatically
 └── README.md        # Project documentation
@@ -51,13 +55,13 @@ distributions it is provided by a separate package, such as `python3-tk`.
 From the project directory:
 
 ```bash
-python3 main.py
+python3 -m add.ui
 ```
 
 On systems where `python` points to Python 3, this also works:
 
 ```bash
-python main.py
+python -m add.ui
 ```
 
 The application initializes `tasks.db`, loads existing tasks, and opens the
@@ -89,9 +93,9 @@ manually unless you have a separate backup.
 Compile the application modules with:
 
 ```bash
-python3 -m py_compile main.py database.py task_utils.py
+python3 -m py_compile main.py add/ui.py add/database.py add/task_utils.py add/validation.py add/themes.py
 ```
 
 The application currently has no automated test suite. The persistence logic
-can be exercised independently by importing `database.py` and passing it a
+can be exercised independently by importing `add.database` and passing it a
 temporary SQLite database path.
