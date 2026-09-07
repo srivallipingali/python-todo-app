@@ -1,15 +1,17 @@
 import tkinter as tk
 from tkinter import messagebox
-import sqlite3
-import os
 from datetime import datetime
+from pathlib import Path
+
+import database
+from task_utils import get_date_status, sort_tasks as sort_task_list
 
 
 # -----------------------------
 # File used to store tasks
 # -----------------------------
 
-DATABASE_NAME="tasks.db"
+DATABASE_NAME = "tasks.db"
 labels = []
 
 
@@ -30,173 +32,16 @@ DARK_FG = "#F20059"
 DARK_BUTTON = "#6C4A8E"
 DARK_ENTRY = "#333333"
 
-def get_date_status(due_date, end_time=""):
-
-    if not due_date:
-        return ""
-
-    now = datetime.now()
-    due = datetime.strptime(due_date, "%d/%m/%Y")
-
-    if end_time:
-        due = due.replace(
-            hour=datetime.strptime(end_time, "%H:%M").hour,
-            minute=datetime.strptime(end_time, "%H:%M").minute
-        )
-    else:
-        due = due.replace(hour=23, minute=59, second=59)
-
-    if now > due:
-        return "⚠️ Overdue"
-
-    elif now.date() == due.date():
-        return "🗓️ Due Today"
-
-    else:
-        return "⏰ Upcoming"
-
-
-# -----------------------------
-# Initialize SQLite database
-# -----------------------------
-
-def initialize_database():
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task TEXT NOT NULL,
-            description TEXT,
-            completed INTEGER DEFAULT 0,
-                start_time TEXT,
-            due_date TEXT,
-            end_time TEXT,
-            priority TEXT DEFAULT 'Medium',
-            label TEXT,
-            starred INTEGER DEFAULT 0
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS labels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL
-        )
-    """)
-
-    connection.commit()
-
-    # Add task date columns to an existing database if they don't exist
-    cursor.execute("PRAGMA table_info(tasks)")
-    columns = [column[1] for column in cursor.fetchall()]
-
-    if "start_time" not in columns:
-        cursor.execute("ALTER TABLE tasks ADD COLUMN start_time TEXT")
-
-    if "due_date" not in columns:
-        cursor.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
-
-    if "end_time" not in columns:
-        cursor.execute("ALTER TABLE tasks ADD COLUMN end_time TEXT")
-
-    if "priority" not in columns:
-        cursor.execute(
-            "ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'"
-        )
-
-    if "label" not in columns:
-        cursor.execute("ALTER TABLE tasks ADD COLUMN label TEXT")
-
-    if "starred" not in columns:
-        cursor.execute(
-            "ALTER TABLE tasks ADD COLUMN starred INTEGER DEFAULT 0"
-        )
-
-    connection.commit()
-    connection.close()
-
-
-# -----------------------------
-# Load tasks from SQLite
-# -----------------------------
-
 def load_tasks():
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT id, task, description, completed, start_time, due_date, end_time, priority, label, starred
-        FROM tasks
-        ORDER BY id
-    """)
-
-    rows = cursor.fetchall()
-
-    connection.close()
-
-    tasks = []
-
-    for row in rows:
-        tasks.append({
-            "id": row[0],
-            "task": row[1],
-            "description": row[2],
-            "completed": bool(row[3]),
-            "start_time": row[4],
-            "due_date": row[5],
-            "end_time": row[6],
-            "priority": row[7] if row[7] else "Medium",
-            "label": row[8] or "",
-            "starred": bool(row[9])
-        })
-
-    return tasks
+    return database.load_tasks(DATABASE_NAME)
 
 
 def load_labels():
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-    cursor.execute("SELECT name FROM labels ORDER BY name COLLATE NOCASE")
-    label_names = [row[0] for row in cursor.fetchall()]
-    connection.close()
-    return label_names
+    return database.load_labels(DATABASE_NAME)
 
-# -----------------------------
-# Save tasks to SQLite
-# -----------------------------
 
 def save_tasks():
-
-    conn = sqlite3.connect("tasks.db")
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM tasks")
-
-    for task in tasks:
-
-        cursor.execute(
-            """
-            INSERT INTO tasks
-            (task, description, completed, start_time, due_date, end_time, priority, label, starred)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                task["task"],
-                task["description"],
-                task["completed"],
-                task.get("start_time", ""),
-                task.get("due_date", ""),
-                task.get("end_time", ""),
-                task.get("priority", "Medium"),
-                task.get("label", ""),
-                int(task.get("starred", False))
-            )
-        )
-
-    conn.commit()
-    conn.close()
+    database.save_tasks(tasks, DATABASE_NAME)
 # -----------------------------
 # Add a new task
 # -----------------------------
@@ -238,27 +83,20 @@ def add_task():
         print("Enter an end date before entering an end time.")
         return
 
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        INSERT INTO tasks
-        (task, description, completed, start_time, due_date, end_time, priority, label, starred)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        task_text,
-        description,
-        0,
-        start_time,
-        due_date,
-        end_time,
-        priority,
-        label,
-        0
-    ))
-
-    connection.commit()
-    connection.close()
+    database.add_task(
+        {
+            "task": task_text,
+            "description": description,
+            "completed": False,
+            "start_time": start_time,
+            "due_date": due_date,
+            "end_time": end_time,
+            "priority": priority,
+            "label": "" if label == "No label" else label,
+            "starred": False,
+        },
+        DATABASE_NAME,
+    )
 
     # Clear fields
     task_entry.delete(0, tk.END)
@@ -304,11 +142,7 @@ def add_label():
     if not label_name:
         return
 
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-    cursor.execute("INSERT OR IGNORE INTO labels (name) VALUES (?)", (label_name,))
-    connection.commit()
-    connection.close()
+    database.add_label(label_name, DATABASE_NAME)
 
     labels.clear()
     labels.extend(load_labels())
@@ -324,16 +158,7 @@ def delete_task(index):
 
     task_id = tasks[index]["id"]
 
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-
-    cursor.execute(
-        "DELETE FROM tasks WHERE id = ?",
-        (task_id,)
-    )
-
-    connection.commit()
-    connection.close()
+    database.delete_task(task_id, DATABASE_NAME)
 
     tasks.clear()
     tasks.extend(load_tasks())
@@ -587,31 +412,6 @@ def edit_task(index):
             return
 
         # Update SQLite database
-        connection = sqlite3.connect(DATABASE_NAME)
-        cursor = connection.cursor()
-
-        cursor.execute("""
-            UPDATE tasks
-            SET task = ?,
-                description = ?,
-                due_date = ?,
-                end_time = ?,
-                priority = ?,
-                label = ?
-            WHERE id = ?
-        """, (
-            new_task,
-            new_description,
-            new_due_date,
-            new_end_time,
-            new_priority,
-            new_label,
-            task["id"]
-        ))
-
-        connection.commit()
-        connection.close()
-
         # Update local task
         task["task"] = new_task
         task["description"] = new_description
@@ -619,6 +419,7 @@ def edit_task(index):
         task["end_time"] = new_end_time
         task["priority"] = new_priority
         task["label"] = new_label
+        database.update_task(task, DATABASE_NAME)
 
         # Refresh task list
         display_tasks()
@@ -650,17 +451,7 @@ def toggle_task(index):
     completed = task_vars[index].get()
     task_id = tasks[index]["id"]
 
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        UPDATE tasks
-        SET completed = ?
-        WHERE id = ?
-    """, (int(completed), task_id))
-
-    connection.commit()
-    connection.close()
+    database.set_task_completed(task_id, completed, DATABASE_NAME)
 
     tasks[index]["completed"] = completed
 
@@ -702,48 +493,6 @@ def update_statistics():
         )
     )
 
-
-def sort_tasks(task_list):
-    selected_sort = sort_var.get()
-
-    if selected_sort == "Default order":
-        sorted_tasks = list(task_list)
-    else:
-        priority_order = {"High": 0, "Medium": 1, "Low": 2}
-
-        def due_date_key(task):
-            due_date = task.get("due_date", "")
-            if not due_date:
-                return datetime.max
-
-            due = datetime.strptime(due_date, "%d/%m/%Y")
-            end_time = task.get("end_time", "")
-            if end_time:
-                parsed_time = datetime.strptime(end_time, "%H:%M")
-                due = due.replace(hour=parsed_time.hour, minute=parsed_time.minute)
-            else:
-                due = due.replace(hour=23, minute=59, second=59)
-            return due
-
-        if selected_sort == "Due date (earliest first)":
-            sorted_tasks = sorted(task_list, key=due_date_key)
-
-        elif selected_sort == "Due date (latest first)":
-            sorted_tasks = sorted(task_list, key=due_date_key, reverse=True)
-
-        else:
-            reverse_priority = selected_sort == "Priority (low to high)"
-            sorted_tasks = sorted(
-                task_list,
-                key=lambda task: priority_order.get(task.get("priority", "Medium"), 1),
-                reverse=reverse_priority
-            )
-
-    return sorted(
-        sorted_tasks,
-        key=lambda task: task.get("starred", False),
-        reverse=True
-    )
 
 def search_tasks():
     search_text = search_entry.get().lower().strip()
@@ -792,7 +541,7 @@ def search_tasks():
             )
         )
     ]
-    filtered_tasks = sort_tasks(filtered_tasks)
+    filtered_tasks = sort_task_list(filtered_tasks, sort_var.get())
 
     # Display filtered tasks
     for index, task in enumerate(filtered_tasks):
@@ -890,14 +639,7 @@ def toggle_searched_task(task, checked_var=None):
 def toggle_star(task):
     task["starred"] = not task.get("starred", False)
 
-    connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
-    cursor.execute(
-        "UPDATE tasks SET starred = ? WHERE id = ?",
-        (int(task["starred"]), task["id"])
-    )
-    connection.commit()
-    connection.close()
+    database.set_task_starred(task["id"], task["starred"], DATABASE_NAME)
 
     search_tasks()
 
@@ -1364,20 +1106,39 @@ main_canvas.bind(
     )
 )
 
+def is_descendant(widget, ancestor):
+    while widget is not None:
+        if widget == ancestor:
+            return True
+        widget = widget.master
+    return False
+
+
 def scroll_page(event):
-    main_canvas.yview_scroll(
-        int(-1 * (event.delta / 120)),
-        "units"
-    )
+    target_canvas = main_canvas
+    if "task_container" in globals() and is_descendant(event.widget, task_container):
+        target_canvas = canvas
+
+    delta = getattr(event, "delta", 0)
+    if not delta:
+        delta = 120 if getattr(event, "num", None) == 4 else -120
+
+    first_position = target_canvas.yview()[0]
+    movement = delta / 120 * 0.1 if abs(delta) >= 120 else delta * 0.01
+    target_canvas.yview_moveto(max(0, min(1, first_position - movement)))
+    return "break"
 
 
 main_canvas.bind_all(
     "<MouseWheel>",
     scroll_page
 )
+main_canvas.bind_all("<Button-4>", scroll_page)
+main_canvas.bind_all("<Button-5>", scroll_page)
 
-light_image = tk.PhotoImage(file="light_background.png")
-dark_image = tk.PhotoImage(file="dark_background.png")
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+light_image = tk.PhotoImage(file=ASSETS_DIR / "light_background.png")
+dark_image = tk.PhotoImage(file=ASSETS_DIR / "dark_background.png")
 
 background_label = tk.Label(main_frame, image=light_image)
 background_label.place(x=0, y=0, relwidth=1, relheight=1)
@@ -1903,7 +1664,7 @@ theme_button.pack(side="right")
 # Load existing tasks
 # -----------------------------
 
-initialize_database()
+database.initialize_database(DATABASE_NAME)
 
 labels.extend(load_labels())
 refresh_label_menus()
